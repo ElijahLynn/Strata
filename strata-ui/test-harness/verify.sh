@@ -468,6 +468,67 @@ case "$ID" in
     chk "$(evnum "(function(){var c=$LU._shelf._cards.get('L0'); return c?Math.round(c.get_width()):-1;})()")" "250" "card-width updates existing cards live"
     ;;
 
+  009)
+    LU="Main.extensionManager.lookup('$UUID').stateObj"
+    THUMBS="$XDG_CACHE_HOME/strata/thumbnails"
+    # --- static asserts: subscribe to the 3 daemon signals; excluded-apps + focus tracking ---
+    chk "$(grep -qs 'signal_subscribe' "$EXT/extension.js" && echo y || echo n)" "y" "subscribes to daemon D-Bus signals (signal_subscribe)"
+    for s in ItemAdded ItemDeleted HistoryCleared; do
+      chk "$(grep -qs "'$s'" "$EXT/extension.js" && echo y || echo n)" "y" "wires the $s signal"
+    done
+    chk "$(grep -qs 'onItemAdded' "$EXT/ui/shelf.js" && echo y || echo n)" "y" "shelf prepends on add (onItemAdded)"
+    chk "$(grep -qs 'onHistoryCleared' "$EXT/ui/shelf.js" && echo y || echo n)" "y" "shelf empties on clear (onHistoryCleared)"
+    chk "$(grep -qs 'excluded-apps' "$EXT/extension.js" && echo y || echo n)" "y" "ItemAdded consults excluded-apps"
+    chk "$(grep -qsE 'focus.window|focus_window' "$EXT/extension.js" && echo y || echo n)" "y" "tracks the focused app (focus-window)"
+
+    # --- runtime: open with a few browse cards; stub the daemon-delete used for excluded drops ---
+    nested_eval "(function(){
+      var e=$LU, sh=e._shelf;
+      globalThis._dM=[]; for(var i=0;i<4;i++) _dM.push({id:'h'+i,mime_type:'text/plain',content_text:'history '+i,created_at:i,has_thumbnail:false});
+      sh._fetchPage=function(o,l){ return Promise.resolve(_dM.slice(o,o+l)); };
+      globalThis._deleted=[];
+      e._proxy={ DeleteItemAsync:function(id){ globalThis._deleted.push(id); return Promise.resolve(); } };
+      e._currentFocusedApp='firefox';
+      e._showVisor(); return 1;
+    })()" >/dev/null 2>&1
+    sleep 0.8
+
+    # ItemAdded (non-excluded) prepends a card at the front (newest-first)
+    nested_eval "(function(){ $LU._handleItemAdded('new1','text/plain','fresh copy'); return 1; })()" >/dev/null 2>&1
+    sleep 0.4
+    chk "$(evnum "(function(){return $LU._shelf._cards.has('new1')?1:0;})()")" "1" "ItemAdded prepends a new card"
+    chk "$(evnum "(function(){var b=$LU._shelf._cardBox; return (b.get_children()[0]===$LU._shelf._cards.get('new1'))?1:0;})()")" "1" "the new card is at the front (newest-first)"
+
+    # a burst of ItemAdded is coalesced into ONE render flush (debounced)
+    nested_eval "(function(){ var e=$LU; e._shelf._addFlushes=0; e._handleItemAdded('b1','text/plain','burst 1'); e._handleItemAdded('b2','text/plain','burst 2'); e._handleItemAdded('b3','text/plain','burst 3'); return 1; })()" >/dev/null 2>&1
+    sleep 0.4
+    chk "$(evnum "(function(){var s=$LU._shelf; return (s._cards.has('b1')&&s._cards.has('b2')&&s._cards.has('b3'))?1:0;})()")" "1" "every add in a burst lands"
+    chk "$(evnum "$LU._shelf._addFlushes")" "1" "the burst is coalesced into a single render flush (debounced)"
+    chk "$(evnum "(function(){var b=$LU._shelf._cardBox.get_children(); return (b.indexOf($LU._shelf._cards.get('b3'))<b.indexOf($LU._shelf._cards.get('b1')))?1:0;})()")" "1" "within a burst the newest ends up in front"
+
+    # ItemAdded from an excluded app is dropped from the shelf AND from the daemon
+    nested_eval "(function(){ $LU._currentFocusedApp='1password'; $LU._handleItemAdded('secret','text/plain','my password'); return 1; })()" >/dev/null 2>&1
+    sleep 0.4
+    chk "$(evnum "(function(){return $LU._shelf._cards.has('secret')?1:0;})()")" "0" "ItemAdded from an excluded app never reaches the shelf"
+    chk "$(evnum "(function(){return (globalThis._deleted.indexOf('secret')>=0)?1:0;})()")" "1" "the excluded item is deleted from the daemon"
+
+    # ItemDeleted removes the card + unlinks its cached thumbnail
+    mkdir -p "$THUMBS"; : > "$THUMBS/h1.png"
+    chk "$([ -f "$THUMBS/h1.png" ] && echo y || echo n)" "y" "(setup) a cached thumbnail exists for h1"
+    nested_eval "(function(){ $LU._handleItemDeleted('h1'); return 1; })()" >/dev/null 2>&1
+    sleep 0.3
+    chk "$(evnum "(function(){return $LU._shelf._cards.has('h1')?1:0;})()")" "0" "ItemDeleted removes the card"
+    chk "$([ -f "$THUMBS/h1.png" ] && echo y || echo n)" "n" "ItemDeleted unlinks the cached thumbnail"
+
+    # HistoryCleared empties the shelf AND wipes the thumbnail cache directory
+    mkdir -p "$THUMBS"; : > "$THUMBS/h0.png"; : > "$THUMBS/h2.png"
+    chk "$(ls "$THUMBS" 2>/dev/null | grep -c .)" "2" "(setup) two cached thumbnails exist before clear"
+    nested_eval "(function(){ $LU._handleHistoryCleared(); return 1; })()" >/dev/null 2>&1
+    sleep 0.3
+    chk "$(evnum "(function(){return $LU._shelf._cards.size;})()")" "0" "HistoryCleared empties the shelf"
+    chk "$(ls "$THUMBS" 2>/dev/null | grep -c .)" "0" "HistoryCleared wipes the thumbnail cache directory"
+    ;;
+
   *) echo "  note: no feature-specific checks for $ID (generic only)";;
 esac
 

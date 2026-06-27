@@ -21,6 +21,7 @@ import { Peek } from './peek.js';
 const RENDER_BATCH = 20;          // cards inserted per idle tick (paced rendering)
 const LOAD_MORE_THRESHOLD = 200;  // px from the end that triggers the next page
 const SEARCH_DEBOUNCE_MS = 150;   // collapse rapid keystrokes into one query
+const ADD_DEBOUNCE_MS = 50;       // coalesce a burst of ItemAdded into one render (009)
 
 export class Shelf {
     constructor(proxy, settings, opts = {}) {
@@ -56,6 +57,12 @@ export class Shelf {
         // Selection state (feature 005).
         this._picking = false;   // de-dupes a pick (click + key, or doubled events)
         this._lastWrite = null;  // last clipboard write {mime, binary, text?} (observable)
+
+        // Live-add state (feature 009): ItemAdded events queue here and flush as
+        // one prepend batch after a short debounce, so a burst is one relayout.
+        this._pendingAdds = [];
+        this._addDebounceId = null;
+        this._addFlushes = 0;    // observable: how many flush passes ran
 
         // Observable by the test harness; also handy for debugging.
         this.renderStats = { batchSize: RENDER_BATCH, batches: 0, count: 0 };
@@ -257,13 +264,18 @@ export class Shelf {
         }
     }
 
-    _appendCard(meta) {
-        if (!meta || this._cards.has(meta.id)) return; // dedup
+    /** Build a Card for one meta and register it (does NOT add it to the box). */
+    _makeCard(meta) {
         const card = new Card(meta, { cardWidth: this._cardWidth });
         card.connect('clicked', () => this.activate(card)); // mouse + keyboard-on-card
         this._cards.set(meta.id, card);
-        this._cardBox.add_child(card);
         this.renderStats.count = this._cards.size;
+        return card;
+    }
+
+    _appendCard(meta) {
+        if (!meta || this._cards.has(meta.id)) return; // dedup
+        this._cardBox.add_child(this._makeCard(meta));
     }
 
     /** Pull the next page when the horizontal scroll nears the end. */
@@ -344,8 +356,68 @@ export class Shelf {
         }
     }
 
+    // -- Live updates (feature 009) --------------------------------------------
+
+    /** A daemon ItemAdded: queue a prepend. A burst is coalesced into one render
+     *  flush after a short debounce so the shelf never thrashes the layout. The
+     *  excluded-apps drop is decided upstream (extension.js, which knows focus). */
+    onItemAdded(meta) {
+        if (!meta || this._cards.has(meta.id)) return; // dedup
+        this._pendingAdds.push(meta);
+        if (this._addDebounceId) GLib.Source.remove(this._addDebounceId);
+        this._addDebounceId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, ADD_DEBOUNCE_MS, () => {
+            this._addDebounceId = null;
+            this._flushAdds();
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    /** Prepend every queued add, newest-first. Within a flush, items are inserted
+     *  in arrival order at index 0, so the last (newest) ends up at the front. */
+    _flushAdds() {
+        const pending = this._pendingAdds;
+        this._pendingAdds = [];
+        this._addFlushes++;
+        if (!this._cardBox) return;
+        for (const meta of pending) {
+            if (this._cards.has(meta.id)) continue; // raced a browse render
+            this._cardBox.insert_child_at_index(this._makeCard(meta), 0);
+        }
+        // A freshly-prepended image card may now be in view → fetch its thumb.
+        this._updateVisibleThumbs();
+    }
+
+    /** A daemon HistoryCleared: empty the shelf and wipe the thumbnail cache. */
+    onHistoryCleared() {
+        this._pendingAdds = [];
+        if (this._addDebounceId) {
+            GLib.Source.remove(this._addDebounceId);
+            this._addDebounceId = null;
+        }
+        this._wipeThumbnailCache();
+        this._thumbCache.clear();
+        this._thumbRequested.clear();
+        this._clear();
+    }
+
+    /** Delete every cached thumbnail PNG (the directory itself may remain). */
+    _wipeThumbnailCache() {
+        try {
+            const dir = Gio.File.new_for_path(this._thumbDir());
+            if (!dir.query_exists(null)) return;
+            const en = dir.enumerate_children('standard::name', Gio.FileQueryInfoFlags.NONE, null);
+            let info;
+            while ((info = en.next_file(null))) {
+                try { dir.get_child(info.get_name()).delete(null); } catch (_) {}
+            }
+            en.close(null);
+        } catch (e) {
+            console.error('[Strata UI] thumbnail cache wipe failed:', e);
+        }
+    }
+
     /** A daemon item went away (delete or prune): drop its card and unlink the
-     *  cached thumbnail. (The ItemDeleted signal subscription is wired in 009.) */
+     *  cached thumbnail. (Wired to the ItemDeleted signal in 009.) */
     onItemDeleted(id) {
         const path = this._thumbCache.get(id) ?? this._thumbPath(id);
         try { GLib.unlink(path); } catch (_) {}
@@ -484,6 +556,10 @@ export class Shelf {
         if (this._searchDebounceId) {
             GLib.Source.remove(this._searchDebounceId);
             this._searchDebounceId = null;
+        }
+        if (this._addDebounceId) {
+            GLib.Source.remove(this._addDebounceId);
+            this._addDebounceId = null;
         }
         if (this._adjIds && this._adj) {
             for (const id of this._adjIds) { if (id) this._adj.disconnect(id); }

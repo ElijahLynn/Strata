@@ -268,3 +268,44 @@ setting passes=true.
 - Run: bash test-harness/verify.sh 008   (shot: test-harness/screenshots/008.png)
 - NEXT ready: 009 (live updates / signals) — blockedBy 002✓. Last v1-mvp feature.
 
+────────────────────────────────────────────────────────────────────────
+2026-06-27 — starting 009: Live updates (signals)
+2026-06-27 — 009: Live updates (signals) (TDD red→green, verified headlessly)
+- extension.js: subscribes to the daemon's three signals on the session bus via
+  Gio.DBus.session.signal_subscribe (by name, not through the proxy, so it works
+  before the proxy settles) — ItemAdded / ItemDeleted / HistoryCleared. Each raw
+  callback unpacks params and forwards to a plain handler (_handleItemAdded /
+  _handleItemDeleted / _handleHistoryCleared) the harness can drive directly.
+  Focus tracking lifted from strata@edu4rdshl.dev (ADR-0001): _connectFocusTracking
+  watches global.display notify::focus-window and caches the focused wm_class.
+- excluded-apps enforcement: the Rust daemon captures the clipboard but can't see
+  the GNOME focus (source_app is always NULL), so the UI enforces it — on
+  ItemAdded, if the app focused at copy-time matches an excluded-apps substring
+  (_isExcludedApp, case-insensitive, read live from gschema) the card is dropped
+  AND the stored item is removed via DeleteItemAsync (best-effort). Default list
+  ships the password managers (008).
+- shelf.js: onItemAdded queues the meta and debounces (ADD_DEBOUNCE_MS=50) → one
+  _flushAdds pass prepends the whole burst at index 0 in arrival order (newest
+  ends up at the front), then runs _updateVisibleThumbs for any freshly-visible
+  image card. _addFlushes counts flush passes (observable: proves coalescing).
+  _appendCard refactored to share _makeCard (build+register a card) with the new
+  prepend path. onHistoryCleared empties the shelf + _wipeThumbnailCache (deletes
+  every cached PNG via enumerate_children). onItemDeleted (from 003) already drops
+  the card + unlinks its thumbnail; now wired to the ItemDeleted signal. Add-debounce
+  timer torn down in destroy(). ItemAdded carries only (id,mime,preview) → the meta
+  is synthesized with has_thumbnail = mime starts with image/.
+- TEST FIRST: verify.sh case 009 statically asserts signal_subscribe + the 3 signal
+  names in extension.js, shelf.onItemAdded/onHistoryCleared, excluded-apps + focus
+  tracking. Runtime: opens with 4 browse cards, stubs the extension's proxy with a
+  recording DeleteItemAsync; ItemAdded prepends a card at the front; a 3-event burst
+  all lands in ONE flush (_addFlushes==1) with the newest in front; an ItemAdded
+  while a password manager is focused never reaches the shelf and is DeleteItem'd
+  from the daemon; ItemDeleted drops the card + unlinks $XDG_CACHE_HOME thumb;
+  HistoryCleared zeroes the shelf + wipes the thumbnail dir. RED before impl, GREEN
+  after; 001–008 all re-verified (no regression — shelf.js card path was refactored).
+- Run: bash test-harness/verify.sh 009   (shot: test-harness/screenshots/009.png)
+- DONE: all 9 v1-mvp features pass:true. v1 MVP feature-complete (headless-green).
+  Remaining is the manual caveat — a human must confirm each in a LIVE GNOME session
+  (extensions can't be fully verified headlessly); the per-feature `steps` are the
+  checklist. v2 backlog: edit-in-place, crisp big-image Peek, pins, fuzzy search.
+

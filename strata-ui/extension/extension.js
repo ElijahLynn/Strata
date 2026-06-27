@@ -40,6 +40,11 @@ export default class StrataUIExtension extends Extension {
     _visorVisible = false;
     _grab = null;
 
+    /** Live-update state (feature 009). */
+    _signalIds = null;          // daemon D-Bus signal subscription ids
+    _focusSignalId = null;      // global.display notify::focus-window
+    _currentFocusedApp = '';    // wm_class of the focused window (for excluded-apps)
+
     enable() {
         this._settings = this.getSettings();
         this._shuttingDown = false;
@@ -54,6 +59,8 @@ export default class StrataUIExtension extends Extension {
         this._buildVisor();
         this._registerShortcut();
         this._watchSettings();    // live layout + theme; also applies the theme now
+        this._connectFocusTracking(); // who's focused → excluded-apps decisions
+        this._connectSignals();   // ItemAdded / ItemDeleted / HistoryCleared
         console.log('[Strata UI] enabled');
     }
 
@@ -61,6 +68,8 @@ export default class StrataUIExtension extends Extension {
         this._shuttingDown = true;
         this._unregisterShortcut();
         this._unwatchSettings();
+        this._disconnectSignals();
+        this._disconnectFocusTracking();
         this._hideVisor();
         this._shelf?.destroy();
         this._shelf = null;
@@ -336,6 +345,79 @@ export default class StrataUIExtension extends Extension {
 
     _unregisterShortcut() {
         Main.wm.removeKeybinding('keyboard-shortcut');
+    }
+
+    // -- Live updates: daemon signals (feature 009) ----------------------------
+
+    /** Subscribe to the daemon's three signals on the session bus. We subscribe
+     *  by name (not through the proxy) so it works even before the proxy settles;
+     *  each callback unpacks and forwards to a plain handler the harness can call. */
+    _connectSignals() {
+        const IFACE = 'dev.edu4rdshl.Strata.Manager';
+        const sub = (name, cb) => Gio.DBus.session.signal_subscribe(
+            BUS_NAME, IFACE, name, OBJECT_PATH, null, Gio.DBusSignalFlags.NONE, cb);
+        this._signalIds = [
+            sub('ItemAdded', (_c, _s, _p, _i, _sig, params) => {
+                const [id, mime, preview] = params.deepUnpack();
+                this._handleItemAdded(id, mime, preview);
+            }),
+            sub('ItemDeleted', (_c, _s, _p, _i, _sig, params) => {
+                const [id] = params.deepUnpack();
+                this._handleItemDeleted(id);
+            }),
+            sub('HistoryCleared', () => this._handleHistoryCleared()),
+        ];
+    }
+
+    _disconnectSignals() {
+        if (this._signalIds) {
+            for (const id of this._signalIds) Gio.DBus.session.signal_unsubscribe(id);
+        }
+        this._signalIds = null;
+    }
+
+    /** ItemAdded(id, mime, preview): drop it if the app that had focus when it was
+     *  copied is excluded (the daemon can't see GNOME focus, so the UI enforces it
+     *  and removes the stored item); otherwise prepend a card (the shelf debounces
+     *  bursts). The signal carries only a preview — has_thumbnail is inferred. */
+    _handleItemAdded(id, mime, preview) {
+        if (this._isExcludedApp(this._currentFocusedApp)) {
+            this._proxy?.DeleteItemAsync(id)?.catch?.(() => {}); // best-effort
+            return;
+        }
+        this._shelf?.onItemAdded({
+            id,
+            mime_type: mime ?? '',
+            content_text: preview ?? '',
+            created_at: 0,
+            has_thumbnail: (mime ?? '').startsWith('image/'),
+        });
+    }
+
+    _handleItemDeleted(id) { this._shelf?.onItemDeleted(id); }
+    _handleHistoryCleared() { this._shelf?.onHistoryCleared(); }
+
+    /** True if a wm_class matches any excluded-apps substring (case-insensitive). */
+    _isExcludedApp(appClass) {
+        if (!appClass) return false;
+        return this._settings.get_strv('excluded-apps')
+            .some(ex => appClass.includes(ex.toLowerCase()));
+    }
+
+    /** Track the focused window's wm_class so ItemAdded can honor excluded-apps. */
+    _connectFocusTracking() {
+        const read = () =>
+            (global.display.focus_window?.get_wm_class() ?? '').toLowerCase();
+        this._currentFocusedApp = read();
+        this._focusSignalId = global.display.connect('notify::focus-window',
+            () => { this._currentFocusedApp = read(); });
+    }
+
+    _disconnectFocusTracking() {
+        if (this._focusSignalId) {
+            global.display.disconnect(this._focusSignalId);
+            this._focusSignalId = null;
+        }
     }
 
     // -- Daemon supervision (lifted from strata@edu4rdshl.dev, ADR-0001) --------

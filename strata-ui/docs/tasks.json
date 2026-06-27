@@ -189,7 +189,7 @@
         "reference/strata-daemon-dbus-contract.md",
         "reference/architecture-constraints.md"
       ],
-      "passes": false
+      "passes": true
     }
   ]
 }
