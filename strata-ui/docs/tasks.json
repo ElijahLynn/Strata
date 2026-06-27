@@ -380,6 +380,25 @@
         "ADR-0004"
       ],
       "passes": false
+    },
+    {
+      "id": "017",
+      "title": "Search box placeholder text contrast",
+      "category": "bugfix",
+      "description": "Live bug (user-reported): the search box placeholder/hint text 'Search clipboard…' (shown while the entry is empty) renders near-WHITE and is hard to read against the visor band. St.Entry draws the hint as a StLabel.hint-text child whose colour, unstyled by us, fell back to the GNOME default theme rule `StEntry StLabel.hint-text { color: rgba(255,255,255,0.7) }` — near-white in BOTH our skins, so it nearly vanished on the pale light band and washed out on the dark one. Fix: give the hint a readable, well-contrasting colour per theme in extension/stylesheet.css, distinctly dimmer than typed text but easily legible, with selectors specificity-matched (.strata-search StLabel.hint-text plus the .strata-theme-* variants) so the default theme rule can't out-specify them.",
+      "steps": [
+        "The empty-search placeholder uses a readable colour with good contrast on the band in BOTH themes (dark and light), distinctly dimmer than typed text but easily legible; it is no longer the near-white rgba(255,255,255,0.7) default",
+        ".strata-search StLabel.hint-text (and the per-theme .strata-theme-dark / .strata-theme-light variants) are matched in specificity so the GNOME default StEntry StLabel.hint-text rule can't out-specify them",
+        "TEST FIRST: verify.sh case 017 opens the visor in each skin and reads the hint label's COMPUTED foreground colour via St.Entry.get_hint_actor().get_theme_node().get_foreground_color(); it asserts the colour equals the intended readable value, is NOT the near-white rgb(255,255,255), and clears a WCAG contrast bar (>=4.5:1) against the band background. RED on the current CSS, GREEN after the fix",
+        "TEETH: setting the hint colour back to the old near-white turns case 017 RED (the light-band contrast collapses to ~1:1); restoring the readable colour returns green"
+      ],
+      "blockedBy": [
+        "004"
+      ],
+      "refs": [
+        "v1-spec.md"
+      ],
+      "passes": true
     }
   ]
 }

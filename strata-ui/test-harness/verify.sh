@@ -953,6 +953,62 @@ case "$ID" in
     # This case asserts image RENDERING + storage only; see claude-progress.txt follow-up.
     ;;
 
+  017)
+    LU="Main.extensionManager.lookup('$UUID').stateObj"
+    # --- BUG (live): the search box placeholder ("Search clipboard…", shown while
+    #     the entry is empty) rendered near-WHITE — rgba(255,255,255,0.7), the GNOME
+    #     default `StEntry StLabel.hint-text` colour our skins never overrode — so it
+    #     was almost invisible on the pale light band and washed-out on the dark one.
+    #     Fix: per-theme hint colours in stylesheet.css, readable + good contrast on
+    #     the band, distinctly dimmer than typed text. ---
+    #
+    # USER-OBSERVABLE assert: read the COMPUTED foreground colour of the real hint
+    # label (St.Entry.get_hint_actor() → StLabel.hint-text) via its theme node, in
+    # BOTH skins. It must equal the intended readable colour, must NOT be the old
+    # near-white low-contrast value, and must clear a WCAG contrast bar vs the band.
+    NEARWHITE_R=255; NEARWHITE_G=255; NEARWHITE_B=255   # the buggy hint colour
+
+    # Static guard: stylesheet declares a hint-text colour for the search entry that
+    # is NOT pure white (so the default near-white theme rule can't leak through).
+    hintcss="$(grep -E '\.strata-search[^,{]*StLabel\.hint-text' "$EXT/stylesheet.css" | grep -c .)"
+    chk "$([ "${hintcss:-0}" -ge 1 ] && echo y || echo n)" "y" "stylesheet targets .strata-search StLabel.hint-text (overrides the default near-white)"
+
+    # Probe one theme: set it, open the visor, read the hint label's computed fg +
+    # the band background, and emit 'R G B A | bR bG bB bA' for the shell to diff.
+    hintsig(){   # $1 = theme (dark|light)
+      nested_eval "(function(){
+        var e=$LU; if(e._visorVisible) e._hideVisor();
+        e._settings.set_string('theme','$1');
+        e._showVisor();
+        var en=e._searchEntry;
+        var hint=en.get_hint_actor();
+        var hc=hint.get_theme_node().get_foreground_color();
+        var bn=e._band.get_theme_node().get_background_color();
+        return [hc.red,hc.green,hc.blue,hc.alpha,'|',bn.red,bn.green,bn.blue].join(' ');
+      })()" 2>/dev/null | grep -oE '[0-9]+ [0-9]+ [0-9]+ [0-9]+ \| [0-9]+ [0-9]+ [0-9]+'
+    }
+    # WCAG-ish contrast of an opaque fg over an opaque bg (sRGB relative luminance).
+    contrast(){ awk -v fr="$1" -v fg="$2" -v fb="$3" -v br="$4" -v bg="$5" -v bb="$6" 'function lin(c){c/=255; return (c<=0.03928)?c/12.92:((c+0.055)/1.055)^2.4} function lum(r,g,b){return 0.2126*lin(r)+0.7152*lin(g)+0.0722*lin(b)} BEGIN{L1=lum(fr,fg,fb);L2=lum(br,bg,bb); hi=(L1>L2)?L1:L2; lo=(L1>L2)?L2:L1; printf "%.2f", (hi+0.05)/(lo+0.05)}'; }
+
+    # --- DARK skin: hint must be the intended readable grey rgb(170,178,190), not
+    #     near-white, and high-contrast on the dark band. ---
+    sig="$(hintsig dark)"; sleep 0.3
+    read -r hr hg hb ha _bar bbr bbg bbb <<< "$sig"
+    chk "$hr $hg $hb" "170 178 190" "dark: hint label computed fg is the intended readable colour rgb(170,178,190)"
+    chk "$([ "$hr" = "$NEARWHITE_R" ] && [ "$hg" = "$NEARWHITE_G" ] && [ "$hb" = "$NEARWHITE_B" ] && echo near-white || echo distinct)" "distinct" "dark: hint is NOT the old near-white rgb(255,255,255) value"
+    dctr="$(contrast "$hr" "$hg" "$hb" "$bbr" "$bbg" "$bbb")"
+    chk "$(awk -v c="$dctr" 'BEGIN{print (c>=4.5)?"ok":"low"}')" "ok" "dark: hint contrast vs band is adequate ($dctr:1 >= 4.5)"
+
+    # --- LIGHT skin: hint must be rgb(90,96,110), not near-white, high-contrast on
+    #     the pale band (the worst case — that is where near-white vanished). ---
+    sig="$(hintsig light)"; sleep 0.3
+    read -r hr hg hb ha _bar bbr bbg bbb <<< "$sig"
+    chk "$hr $hg $hb" "90 96 110" "light: hint label computed fg is the intended readable colour rgb(90,96,110)"
+    chk "$([ "$hr" = "$NEARWHITE_R" ] && [ "$hg" = "$NEARWHITE_G" ] && [ "$hb" = "$NEARWHITE_B" ] && echo near-white || echo distinct)" "distinct" "light: hint is NOT the old near-white rgb(255,255,255) value"
+    lctr="$(contrast "$hr" "$hg" "$hb" "$bbr" "$bbg" "$bbb")"
+    chk "$(awk -v c="$lctr" 'BEGIN{print (c>=4.5)?"ok":"low"}')" "ok" "light: hint contrast vs band is adequate ($lctr:1 >= 4.5)"
+    ;;
+
   *) echo "  note: no feature-specific checks for $ID (generic only)";;
 esac
 

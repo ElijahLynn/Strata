@@ -36,6 +36,19 @@
   border-color: rgba(120, 170, 255, 0.85);
   background-color: rgba(255, 255, 255, 0.10);
 }
+/* Placeholder/hint text (017): when the search box is empty St.Entry shows a
+ * StLabel.hint-text child. The default GNOME theme styles it `StEntry
+ * StLabel.hint-text { color: rgba(255,255,255,0.7) }` — near-WHITE in BOTH our
+ * skins (our light/dark classes never reached the hint label), so on the light
+ * band it was almost invisible and on the dark band it sat too close to the
+ * typed text. We restyle the hint per theme: a readable colour with good contrast
+ * on the band, distinctly dimmer than typed text but easily legible. Specificity
+ * is matched to the theme's selector (.strata-search StLabel.hint-text = two
+ * classes + one type beats StEntry StLabel.hint-text = one class + two types),
+ * and the per-theme rules below carry an extra class so they win in either skin. */
+.strata-search StLabel.hint-text {
+  color: rgb(170, 178, 190);
+}
 
 /* Horizontal shelf of cards inside the band. */
 .strata-shelf-scroll {
@@ -175,10 +188,19 @@
   border-top-color: rgba(0, 0, 0, 0.12);
   border-bottom-color: rgba(0, 0, 0, 0.12);
 }
+.strata-theme-dark .strata-search StLabel.hint-text {
+  color: rgb(170, 178, 190);
+}
 .strata-theme-light .strata-search {
   background-color: rgba(0, 0, 0, 0.05);
   color: rgba(0, 0, 0, 0.9);
   border-color: rgba(0, 0, 0, 0.10);
+}
+/* Light band is pale (rgba(246,246,248,…)); a near-white hint vanished on it.
+ * A solid dark-grey hint keeps strong contrast yet reads dimmer than the typed
+ * text (rgba(0,0,0,0.9)). Same specificity as the dark variant above. */
+.strata-theme-light .strata-search StLabel.hint-text {
+  color: rgb(90, 96, 110);
 }
 .strata-theme-light .strata-gear {
   background-color: rgba(0, 0, 0, 0.05);
