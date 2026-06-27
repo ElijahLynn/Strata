@@ -9,7 +9,10 @@ Living scope doc, updated as we grill. ADRs record the *why* for contested calls
 
 A greenfield GNOME Shell extension that presents the Strata daemon's clipboard history as a
 **Quake-style visor**: a hotkey-summoned, full-width, fixed-height horizontal **Shelf** of rich,
-readable **Cards**. Borrows plumbing from `strata@edu4rdshl.dev`, UX from Copyous, code from neither.
+readable **Cards**. Borrows plumbing from `strata@edu4rdshl.dev`, rich-card UX from Copyous, the
+Quake-summon pattern from Guake, and the readable-band form factor from Paste (macOS) — code from
+none of them. (Copyous has unfixable main-loop performance issues; Guake is stuck in X11 — we take
+the patterns, not the programs. See [borrow-map](./reference/borrow-map.md).)
 Daemon unchanged in v1. (ADR-0001, ADR-0003) Written in plain JS for the MVP, migrating to
 TypeScript once it works (ADR-0006).
 

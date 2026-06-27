@@ -18,6 +18,10 @@ animation is fluff and spends shell-thread frames we want kept free).
 - A clipboard manager is summon-on-demand; a permanent dock would cost a full-time band of screen
   space and is heavier to do on GNOME (reserved struts).
 - The Quake summon is a familiar, fast, keyboard-first interaction; shown instantly it feels snappy.
+  We borrow the pattern from **Guake** (the interaction, not the program — Guake is stuck in X11 land,
+  and we want a native Wayland GNOME Shell overlay).
+- The full-width, fixed-height band of readable cards is modeled on **Paste (macOS)**; the v1
+  height (~360px) and card-width budget are estimated from a Paste reference shot.
 - A tall, full-width fixed band (vs Strata's narrow popup) is the whole point — it makes clipboard
   contents readable, which was the #1 pain.
 

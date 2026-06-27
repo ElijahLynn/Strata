@@ -1,12 +1,21 @@
-# Borrow map: Strata's extension vs Copyous
+# Borrow map: what Strata UI borrows, and why not use the sources directly
 
 Strata UI is greenfield, but it doesn't start from zero. It lifts the *plumbing* from
 Strata's own extension (`strata@edu4rdshl.dev`) — which already integrates the daemon
-correctly — and lifts *UX patterns* from Copyous, without its code or its main-loop
-architecture.
+correctly — and lifts *UX patterns* from three references, without their code or their
+architectures.
 
 Detailed source analyses: [copyous-analysis.md](./copyous-analysis.md),
 [strata-daemon-dbus-contract.md](./strata-daemon-dbus-contract.md).
+
+## Influences (and why we don't just use them)
+
+| Source | What we take | Why not just use it |
+|---|---|---|
+| **`strata@edu4rdshl.dev`** | The plumbing: D-Bus client, daemon supervision, lazy pagination, thumbnail cache, paste-back, gschema, signals | We *are* building on it — but its UI is a narrow vertical dropdown, the opposite of the readable horizontal shelf we want |
+| **Copyous** | The rich-card UX: horizontal shelf, per-type card renderers, keyboard-first nav | Unfixable performance issues — capture, hashing, image decode, highlight, search, and JSON persistence all run on the GNOME Shell main loop, with eager non-virtualized rendering. Forking inherits the stutter (ADR-0001) |
+| **Guake** | The Quake-style summon: a hotkey-toggled, full-width, edge-anchored, fixed-height transient visor (ADR-0004) | Stuck in X11 land; we want a native Wayland GNOME Shell overlay. We borrow the *interaction pattern*, not the program |
+| **Paste (macOS)** | The visual form factor: a tall, readable horizontal band of fixed-width cards, ~6 visible at once (the v1 height/card-width budget is estimated from a Paste reference shot — ADR-0004) | Mac-only, closed source, no Linux/Wayland/Strata-daemon integration |
 
 ## Take from `strata@edu4rdshl.dev` (the plumbing — "the right database etc.")
 
