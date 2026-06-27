@@ -23,6 +23,10 @@ sleep 0.5
 fail=0
 chk(){ if [ "$1" = "$2" ]; then echo "  ok  : $3"; else echo "  FAIL: $3 (got '$1', want '$2')"; fail=1; fi; }
 log(){ grep -aE "$1" "$NESTED_TMP/shell.log" 2>/dev/null; }
+# Eval a JS expression that returns a number; print just that number.
+# (Eval's D-Bus reply is `(true, '<json>')`; the success flag has no digits,
+#  so the first integer in the line is the returned value.)
+evnum(){ nested_eval "$1" 2>/dev/null | grep -oE '[0-9]+' | head -1; }
 
 # --- generic asserts (every feature) ---
 chk "$(log '\[Strata UI\] enabled' | head -1 | grep -c .)" "1" "extension enable() ran (logged 'enabled')"
@@ -38,6 +42,39 @@ case "$ID" in
     chk "$(log '\[Strata UI\] visor shown' | head -1 | grep -c .)" "1" "Ctrl+Alt+C path shows the visor"
     vis=$(nested_eval "String((Main.extensionManager.lookup('$UUID').stateObj||{})._visorVisible)" 2>/dev/null | grep -oE 'true|false' | head -1)
     chk "${vis:-unknown}" "true" "visor is visible after toggle"
+    ;;
+  002)
+    LU="Main.extensionManager.lookup('$UUID').stateObj"
+    # --- static asserts: architecture-constraints (St.Label only; real GetHistory; paced render) ---
+    if grep -rqs 'set_markup(' "$EXT/ui" "$EXT/extension.js"; then
+      echo "  FAIL: set_markup() called (clipboard content must never be parsed as markup)"; fail=1
+    else echo "  ok  : no set_markup() (St.Label only)"; fi
+    chk "$(grep -rqs 'GetHistoryAsync' "$EXT/ui" && echo y || echo n)" "y" "shelf fetches via GetHistory (GetHistoryAsync)"
+    chk "$(grep -rqs 'idle_add'       "$EXT/ui" && echo y || echo n)" "y" "shelf renders via idle_add batches"
+
+    # --- runtime: stub the fetch seam with 60 canned text metas, open, then drive a near-end scroll ---
+    # _fetchPage(offset,limit) is the daemon seam; recording its args proves GetHistory(0,pageSize) etc.
+    nested_eval "(function(){
+      var e=$LU, sh=e._shelf;
+      globalThis._sM=[]; for (var i=0;i<60;i++) _sM.push({id:'id'+i,mime_type:'text/plain',content_text:'card text number '+i,created_at:i,has_thumbnail:false});
+      globalThis._sC=[];
+      sh._fetchPage=function(o,l){ _sC.push([o,l]); return Promise.resolve(_sM.slice(o,o+l)); };
+      e._showVisor(); return 1;
+    })()" >/dev/null 2>&1
+    sleep 0.9
+    chk "$(evnum "$LU._shelf._cardBox.get_n_children()")" "50" "first page renders page-size (50) cards"
+    chk "$(evnum "globalThis._sC[0][0]")" "0"  "first GetHistory offset is 0"
+    chk "$(evnum "globalThis._sC[0][1]")" "50" "first GetHistory limit is page-size (50)"
+    chk "$(evnum "$LU._shelf.renderStats.batchSize")" "20" "cards inserted in idle_add batches of 20"
+    chk "$(evnum "$LU._shelf.renderStats.batches")"   "3"  "50 items => 3 paced batches (20/20/10)"
+    chk "$(evnum "(function(){var S=imports.gi.St,c=$LU._shelf._cardBox.get_first_child(); return (c._textLabel instanceof S.Label)?1:0;})()")" "1" "card text actor is an St.Label"
+
+    nested_eval "(function(){var sh=$LU._shelf,a=sh._scroll.get_hadjustment(); a.value=a.upper; sh._maybeLoadMore(); return 1;})()" >/dev/null 2>&1
+    sleep 0.7
+    chk "$(evnum "globalThis._sC.length")" "2"  "scrolling within ~200px of the end fetches the next page"
+    chk "$(evnum "globalThis._sC[1][0]")" "50" "second page offset is loadedOffset (50)"
+    chk "$(evnum "$LU._shelf._cardBox.get_n_children()")" "60" "all 60 cards present after the second page"
+    chk "$(evnum "(function(){return $LU._shelf._hasMore?1:0;})()")" "0" "short final page clears _hasMore (full table never in JS memory)"
     ;;
   *) echo "  note: no feature-specific checks for $ID (generic only)";;
 esac

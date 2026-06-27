@@ -16,6 +16,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as MessageTray from 'resource:///org/gnome/shell/ui/messageTray.js';
 
 import {StrataProxy, BUS_NAME, OBJECT_PATH} from './dbus.js';
+import {Shelf} from './ui/shelf.js';
 
 export default class StrataUIExtension extends Extension {
     /** @type {Gio.Subprocess | null} */
@@ -34,6 +35,8 @@ export default class StrataUIExtension extends Extension {
     _visor = null;
     /** @type {St.BoxLayout | null} the edge band */
     _band = null;
+    /** @type {Shelf | null} the horizontal card shelf inside the band */
+    _shelf = null;
     _visorVisible = false;
     _grab = null;
 
@@ -57,6 +60,8 @@ export default class StrataUIExtension extends Extension {
         this._shuttingDown = true;
         this._unregisterShortcut();
         this._hideVisor();
+        this._shelf?.destroy();
+        this._shelf = null;
         this._visor?.destroy();   // also destroys the band child
         this._visor = null;
         this._band = null;
@@ -90,15 +95,10 @@ export default class StrataUIExtension extends Extension {
             x_expand: true,
             reactive: true,
         });
-        // Placeholder until the shelf of cards arrives (later features).
-        this._band.add_child(new St.Label({
-            text: 'Strata UI — empty visor',
-            style_class: 'strata-visor-placeholder',
-            x_align: Clutter.ActorAlign.CENTER,
-            y_align: Clutter.ActorAlign.CENTER,
-            x_expand: true,
-            y_expand: true,
-        }));
+        // The shelf renders clipboard history as a horizontal band of cards,
+        // paginated from the daemon and loaded on each open.
+        this._shelf = new Shelf(this._proxy, this._settings);
+        this._band.add_child(this._shelf.actor);
         this._visor.add_child(this._band);
 
         Main.layoutManager.addChrome(this._visor);
@@ -149,6 +149,7 @@ export default class StrataUIExtension extends Extension {
         // Instant — no animation (ADR-0004). Grab keyboard so Escape works.
         this._grab = Main.pushModal(this._visor, {actionMode: Shell.ActionMode.NORMAL});
         this._visor.grab_key_focus();
+        this._shelf?.load();   // pull current history (page 0) on every summon
         console.log('[Strata UI] visor shown');
     }
 

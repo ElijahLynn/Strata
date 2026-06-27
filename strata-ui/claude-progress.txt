@@ -3,6 +3,27 @@ Newest entries on top. Each coding session appends what it did + how to verify.
 Harness: https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents
 
 ────────────────────────────────────────────────────────────────────────
+2026-06-27 — 002: Shelf from history (TDD red→green, verified headlessly)
+- New extension/ui/shelf.js + extension/ui/card.js; wired into the visor band
+  (extension.js): the empty placeholder is replaced by a horizontal St.ScrollView
+  shelf of fixed-width Text cards. Cards are St.Label only (no set_markup).
+- Shelf.load() runs on every summon (_showVisor) → GetHistory(0, page-size) via the
+  _fetchPage seam; rendered in GLib.idle_add batches of 20 (renderStats exposes
+  batchSize/batches/count). Scrolling within 200px of the end pulls the next page
+  (_maybeLoadMore on the hadjustment); _hasMore clears on a short page so the full
+  table never sits in JS memory. Epoch guard drops superseded renders.
+- gschema: added card-width (300) + page-size (50).
+- TEST FIRST: verify.sh case 002 stubs _fetchPage with 60 canned metas, opens, asserts
+  50 cards on page 1 / GetHistory(0,50) / 20-batches=3 / St.Label / near-end scroll →
+  page 2 (offset 50) → 60 cards → _hasMore=false. Plus static asserts: no set_markup(),
+  GetHistoryAsync + idle_add present. Confirmed RED before impl, GREEN after.
+- Gotcha: this GJS exposes Pango.EllipsizeMode (not EllipsizeType); St.ScrollView uses
+  St.PolicyType.{EXTERNAL,NEVER} + hscrollbar_policy/vscrollbar_policy.
+- Run: bash test-harness/verify.sh 002   (shot: /tmp/strata-verify-002.png)
+- NEXT ready: 003 (image thumbnails) / 004 (search) / 005 (select) / 006 (peek) /
+  007 (typed cards) / 009 (live signals) — all blockedBy 002 (now passing); 008 blockedBy 001.
+
+────────────────────────────────────────────────────────────────────────
 2026-06-27 — Headless test harness proven
 - test-harness/launch-nested.sh: reusable throwaway headless GNOME Shell
   (gnome-shell --headless --virtual-monitor WxH --wayland) on its own temp XDG profile +

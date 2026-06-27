@@ -5,8 +5,33 @@
   border-bottom: 1px solid rgba(255, 255, 255, 0.10);
 }
 
-/* Placeholder shown in the empty v1 visor (removed once the shelf lands). */
-.strata-visor-placeholder {
-  color: rgba(255, 255, 255, 0.55);
+/* Horizontal shelf of cards inside the band. */
+.strata-shelf-scroll {
+  padding: 0;
+}
+.strata-shelf {
+  padding: 14px;
+  spacing: 12px;
+}
+
+/* A single card: fixed width (set in JS from card-width), fills band height. */
+.strata-card {
+  border-radius: 10px;
+  background-color: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition-duration: 120ms;
+}
+.strata-card:hover {
+  background-color: rgba(255, 255, 255, 0.09);
+}
+.strata-card-focused {
+  border-color: rgba(120, 170, 255, 0.85);
+  background-color: rgba(120, 170, 255, 0.16);
+}
+.strata-card-body {
+  padding: 14px;
+}
+.strata-card-text {
+  color: rgba(255, 255, 255, 0.92);
   font-size: 14px;
 }

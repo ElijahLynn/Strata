@@ -43,7 +43,7 @@
         "reference/architecture-constraints.md",
         "v1-spec.md"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "003",
