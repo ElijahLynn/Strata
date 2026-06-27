@@ -539,6 +539,35 @@ export class Shelf {
         return true;
     }
 
+    /** Delete the focused card's item from history (feature 020). Resolves the
+     *  card under key focus; if focus is in the search box / on no card, does
+     *  nothing (Delete edits the query text there) and returns false. Otherwise
+     *  asks the daemon to DeleteItem(id) — the daemon's ItemDeleted then drops the
+     *  card via onItemDeleted (009) and unlinks its cached thumbnail — and moves
+     *  focus to the next card (or the previous one if the deleted card was last),
+     *  so repeated Delete walks the shelf. Returns true (the key was consumed). */
+    deleteFocused() {
+        const card = this._cardFromActor(global.stage.get_key_focus());
+        if (!card) return false;   // focus is in search / on no card → not ours
+        const cards = this._cardBox ? this._cardBox.get_children() : [];
+        const idx = cards.indexOf(card);
+        // Pick who gets focus next BEFORE the card is destroyed: the following
+        // card, or the previous one when we deleted the last card.
+        const next = cards[idx + 1] ?? cards[idx - 1] ?? null;
+        const id = card.strataId;
+        // Fire-and-forget: the card is removed when the daemon's ItemDeleted lands
+        // (onItemDeleted), never optimistically here — so a failed delete leaves the
+        // card in place rather than vanishing it. Best-effort like the excluded-app
+        // drop in extension.js.
+        this._proxy?.DeleteItemAsync?.(id)?.catch?.(e =>
+            console.error('[Strata UI] DeleteItem failed:', e));
+        if (next) {
+            global.stage.set_key_focus(next);
+            this._ensureCardVisible(next);
+        }
+        return true;
+    }
+
     _ensureCardVisible(card) {
         const adj = this._scroll?.get_hadjustment();
         if (!adj || adj.page_size <= 0) return;

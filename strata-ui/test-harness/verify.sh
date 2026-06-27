@@ -1036,6 +1036,64 @@ case "$ID" in
     chk "$(evnum "(function(){var c=$LU._shelf._cards.get('t0'); return (((c._thumbContainer.style)||'').indexOf('background-image')>=0)?1:0;})()")" "1" "visible image card loaded a thumbnail (background-image applied)"
     chk "$(evnum "(function(){var s=(($LU._shelf._cards.get('t0')._thumbContainer.style)||'').replace(/ /g,''); return (s.indexOf('background-size:contain')>=0)?1:0;})()")" "1" "the APPLIED thumbnail style uses background-size: contain (crisp, no upscale)"
     chk "$(evnum "(function(){var s=(($LU._shelf._cards.get('t0')._thumbContainer.style)||'').replace(/ /g,''); return (s.indexOf('background-size:cover')>=0)?1:0;})()")" "0" "the APPLIED thumbnail style does NOT use background-size: cover (no blurry upscaling)"
+  020)
+    LU="Main.extensionManager.lookup('$UUID').stateObj"
+    # --- the live bug: with a card highlighted (keyboard focus), pressing Delete
+    #     does NOTHING — it should DELETE that clipboard item from history. The fix
+    #     wires Delete / KP_Delete in the visor key handling to a shelf method that
+    #     calls the daemon's DeleteItem(id) for the focused card; the daemon's
+    #     ItemDeleted signal then drops the card (shelf.onItemDeleted, from 009) and
+    #     unlinks its cached thumbnail. Focus moves to the next card after. Delete in
+    #     the SEARCH box must NOT delete (it edits the query text there). This case
+    #     drives a REAL Delete keystroke through the capture/key path, asserts the
+    #     daemon DeleteItem fired for that card and the card is gone, and asserts the
+    #     search-box Delete issues NO DeleteItem. ---
+
+    # --- static: the visor key handling references Delete and a shelf delete seam ---
+    chk "$(grep -qsE 'KEY_Delete|KEY_KP_Delete' "$EXT/extension.js" && echo y || echo n)" "y" "visor key handling references the Delete key"
+    chk "$(grep -qs 'DeleteItemAsync' "$EXT/ui/shelf.js" && echo y || echo n)" "y" "shelf deletes the focused item via the daemon (DeleteItemAsync)"
+
+    # --- runtime: open with browse cards; stub the proxy's DeleteItemAsync to RECORD
+    #     the deleted id AND mirror the real daemon by emitting ItemDeleted (which
+    #     shelf.onItemDeleted handles → drops the card). ---
+    nested_eval "(function(){
+      var e=$LU, sh=e._shelf;
+      globalThis._dM=[]; for (var i=0;i<8;i++) _dM.push({id:'d'+i,mime_type:'text/plain',content_text:'del card '+i,created_at:i,has_thumbnail:false});
+      sh._fetchPage=function(o,l){ return Promise.resolve(_dM.slice(o,o+l)); };
+      globalThis._del=[];
+      // Recording delete stub that mirrors the daemon: record the id, then emit the
+      // ItemDeleted the real daemon would (the extension's handler drops the card).
+      e._proxy={ DeleteItemAsync:function(id){ globalThis._del.push(id); e._handleItemDeleted(id); return Promise.resolve(); } };
+      // give the shelf the same stubbed proxy so its DeleteItemAsync call lands here
+      sh._proxy=e._proxy;
+      e._showVisor(); return 1;
+    })()" >/dev/null 2>&1
+    sleep 0.8
+    focuseq(){ evnum "(function(){return global.stage.get_key_focus()===$1?1:0;})()"; }
+
+    # focus the SECOND card, then a REAL Delete keystroke must delete THAT card.
+    nested_eval "(function(){global.stage.set_key_focus($LU._shelf._cardBox.get_children()[1]); return 1;})()" >/dev/null 2>&1
+    sleep 0.2
+    chk "$(focuseq "$LU._shelf._cards.get('d1')")" "1" "(setup) the second card (d1) holds key focus"
+    nested_key Delete; sleep 0.4
+    chk "$(evnum "(function(){return (globalThis._del.indexOf('d1')>=0)?1:0;})()")" "1" "Delete on a focused card calls DeleteItem(id) for THAT card"
+    chk "$(evnum "(function(){return globalThis._del.length;})()")" "1" "exactly one DeleteItem is issued for one Delete press"
+    chk "$(evnum "(function(){return $LU._shelf._cards.has('d1')?1:0;})()")" "0" "the deleted card is removed from the shelf (ItemDeleted handled)"
+
+    # focus moved to the NEXT card (d2) so repeated Delete walks the shelf
+    chk "$(focuseq "$LU._shelf._cards.get('d2')")" "1" "after delete, focus moves to the next card (d2)"
+
+    # a second real Delete deletes the now-focused d2 too (repeat works)
+    nested_key Delete; sleep 0.4
+    chk "$(evnum "(function(){return (globalThis._del.indexOf('d2')>=0)?1:0;})()")" "1" "a second Delete removes the now-focused card (d2)"
+    chk "$(evnum "(function(){return globalThis._del.length;})()")" "2" "two Delete presses issue exactly two DeleteItem calls"
+
+    # Delete with focus in the SEARCH box must NOT delete (it edits the query text)
+    nested_eval "(function(){ globalThis._del=[]; global.stage.set_key_focus($LU._searchEntry.get_clutter_text()); return 1; })()" >/dev/null 2>&1
+    sleep 0.2
+    chk "$(focuseq "$LU._searchEntry.get_clutter_text()")" "1" "(setup) the search box holds key focus"
+    nested_key Delete; sleep 0.4
+    chk "$(evnum "(function(){return globalThis._del.length;})()")" "0" "Delete with focus in the search box issues NO DeleteItem"
     ;;
 
   *) echo "  note: no feature-specific checks for $ID (generic only)";;

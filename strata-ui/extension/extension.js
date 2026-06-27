@@ -220,6 +220,17 @@ export default class StrataUIExtension extends Extension {
                 this._shelf?.activatePick(global.stage.get_key_focus());
                 return Clutter.EVENT_STOP;
             }
+            // Delete / KP_Delete on a focused card removes THAT item from history
+            // (feature 020). Handled in the BUBBLE phase on purpose: when focus is in
+            // the search box its ClutterText consumes Delete for text editing and it
+            // never reaches here, so the query is edited rather than an item deleted.
+            // deleteFocused() returns false when focus isn't on a card (search/
+            // nowhere) — then we PROPAGATE so nothing is swallowed.
+            if (sym === Clutter.KEY_Delete || sym === Clutter.KEY_KP_Delete) {
+                if (this._shelf?.deleteFocused())
+                    return Clutter.EVENT_STOP;
+                return Clutter.EVENT_PROPAGATE;
+            }
             // Alt+1…9 → copy the Nth visible card (Alt so plain digits type into search).
             if ((state & Clutter.ModifierType.MOD1_MASK) &&
                 sym >= Clutter.KEY_1 && sym <= Clutter.KEY_9) {

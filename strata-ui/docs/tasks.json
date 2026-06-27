@@ -418,6 +418,28 @@
         "reference/architecture-constraints.md"
       ],
       "passes": true
+    },
+    {
+      "id": "020",
+      "title": "Delete key removes the focused item",
+      "category": "functional",
+      "description": "With a card highlighted (keyboard focus), pressing Delete removes THAT clipboard item from history. Live bug: Delete on a focused card does nothing. Fix: the visor's key handling, on Delete / KP_Delete when a card holds focus, calls a shelf method that deletes the focused card's item via the daemon's DeleteItem (DeleteItemAsync). The daemon emits ItemDeleted, which shelf.onItemDeleted already handles (drops the card + unlinks the cached thumbnail); focus then moves to the next card. Delete with focus in the search box must NOT delete (it edits the query text there).",
+      "steps": [
+        "With the visor open and a card focused, Delete (or KP_Delete) calls DeleteItem(id) for that card's id; the daemon's ItemDeleted then removes the card and unlinks its cached thumbnail",
+        "After a delete, key focus moves to the next card (or the previous one if the deleted card was last), so repeated Delete walks the shelf",
+        "Delete while focus is still in the search box does NOT delete an item (Delete edits the search text); no DeleteItem is issued",
+        "TEST FIRST: verify.sh case 020 opens with browse cards, focuses a card, sends a REAL Delete keystroke (nested_key Delete), and asserts DeleteItem was called for that card's id (recording stub on the proxy) and the card is removed once ItemDeleted lands; asserts a real Delete with focus in the search box issues NO DeleteItem. RED before impl (Delete does nothing today), GREEN after. TEETH: removing the Delete handler turns it RED"
+      ],
+      "blockedBy": [
+        "005",
+        "011"
+      ],
+      "refs": [
+        "reference/strata-daemon-dbus-contract.md",
+        "extension/dbus.js (DeleteItemAsync)",
+        "v1-spec.md"
+      ],
+      "passes": true
     }
   ]
 }
