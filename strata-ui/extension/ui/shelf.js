@@ -18,6 +18,7 @@ import { Card } from './card.js';
 
 const RENDER_BATCH = 20;          // cards inserted per idle tick (paced rendering)
 const LOAD_MORE_THRESHOLD = 200;  // px from the end that triggers the next page
+const SEARCH_DEBOUNCE_MS = 150;   // collapse rapid keystrokes into one query
 
 export class Shelf {
     constructor(proxy, settings) {
@@ -31,7 +32,12 @@ export class Shelf {
         this._loadedOffset = 0;   // how many items we've already pulled
         this._hasMore = true;     // false once the daemon returns < pageSize
         this._loadingMore = false; // re-entrancy guard for fetches
-        this._loadEpoch = 0;      // bumped on each (re)load so stale renders bail
+        this._loadEpoch = 0;      // bumped on each (re)render so stale renders bail
+
+        // Search state (feature 004).
+        this._query = '';              // applied query ('' = browse mode)
+        this._searchEpoch = 0;         // drops out-of-order search responses
+        this._searchDebounceId = null; // pending debounce timer
 
         /** @type {Map<string, Card>} id → card; doubles as a dedup guard. */
         this._cards = new Map();
@@ -84,6 +90,13 @@ export class Shelf {
     /** (Re)load from the top. Called each time the visor opens, so a summon
      *  always shows current history. */
     load() {
+        // Entering browse mode: cancel any in-flight/pending search.
+        this._query = '';
+        this._searchEpoch++;
+        if (this._searchDebounceId) {
+            GLib.Source.remove(this._searchDebounceId);
+            this._searchDebounceId = null;
+        }
         this._loadEpoch++;
         this._loadingMore = true;   // hold off scroll-driven loads until page 0 lands
         this._loadedOffset = 0;
@@ -100,6 +113,73 @@ export class Shelf {
         this._cards.clear();
         this._cardBox?.destroy_all_children();
         this.renderStats.count = 0;
+    }
+
+    // -- Search (feature 004) --------------------------------------------------
+
+    /** Debounce search-box input; collapses rapid keystrokes into one query. */
+    setQuery(query) {
+        const trimmed = (query ?? '').trim();
+        if (this._searchDebounceId) {
+            GLib.Source.remove(this._searchDebounceId);
+            this._searchDebounceId = null;
+        }
+        this._searchDebounceId = GLib.timeout_add(
+            GLib.PRIORITY_DEFAULT, SEARCH_DEBOUNCE_MS, () => {
+                this._searchDebounceId = null;
+                this._runQuery(trimmed).catch(e =>
+                    console.error('[Strata UI] search failed:', e));
+                return GLib.SOURCE_REMOVE;
+            });
+    }
+
+    /** Seam: FTS5 prefix search via the daemon — SearchHistory(query, limit).
+     *  Overridden in tests. */
+    async _fetchSearch(query, limit) {
+        const [json] = await this._proxy.SearchHistoryAsync(query, limit);
+        return JSON.parse(json);
+    }
+
+    /** Run one query. Empty → restore the browse view. Non-empty → fetch matches
+     *  (bounded by max-history) and render them through the same paced pipeline.
+     *  An epoch guard drops a stale response that resolves after a newer query. */
+    async _runQuery(query) {
+        const epoch = ++this._searchEpoch;
+        if (!query) {
+            this.load();              // browse mode (recent history)
+            return;
+        }
+        this._query = query;
+        const limit = this._settings.get_int('max-history');
+        let metas;
+        try {
+            metas = await this._fetchSearch(query, limit);
+        } catch (e) {
+            console.error('[Strata UI] SearchHistory failed:', e);
+            return;
+        }
+        if (epoch !== this._searchEpoch || !this._cardBox) return; // superseded / destroyed
+        this._renderResults(metas);
+    }
+
+    /** Replace the shelf with a result set. Search has no browse pagination — the
+     *  daemon already returned every match up to the limit. Reuses the paced
+     *  idle_add render and the lazy-thumbnail pass. */
+    _renderResults(metas) {
+        const renderEpoch = ++this._loadEpoch; // supersede any browse/search render
+        this._loadingMore = false;
+        this._hasMore = false;
+        this._loadedOffset = 0;
+        this._thumbRequested.clear();
+        this.renderStats.batches = 0;
+        this._clear();
+        this._renderBatched(metas, renderEpoch).then(() => {
+            if (renderEpoch !== this._loadEpoch) return;
+            GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+                if (renderEpoch === this._loadEpoch) this._updateVisibleThumbs();
+                return GLib.SOURCE_REMOVE;
+            });
+        });
     }
 
     /** Seam: fetch one page of ItemMeta[] from the daemon. Calls
@@ -254,7 +334,12 @@ export class Shelf {
     }
 
     destroy() {
-        this._loadEpoch++; // invalidate any in-flight render
+        this._loadEpoch++;   // invalidate any in-flight render
+        this._searchEpoch++; // invalidate any in-flight search
+        if (this._searchDebounceId) {
+            GLib.Source.remove(this._searchDebounceId);
+            this._searchDebounceId = null;
+        }
         if (this._adjIds && this._adj) {
             for (const id of this._adjIds) { if (id) this._adj.disconnect(id); }
         }

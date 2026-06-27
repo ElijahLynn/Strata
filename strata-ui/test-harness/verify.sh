@@ -116,6 +116,72 @@ case "$ID" in
     chk "$(evnum "(function(){return $LU._shelf._cards.has('img0')?1:0;})()")" "0" "ItemDeleted removes the card from the shelf"
     ;;
 
+  004)
+    LU="Main.extensionManager.lookup('$UUID').stateObj"
+    # --- static asserts: FTS5 prefix search via daemon, debounced, epoch-guarded ---
+    chk "$(grep -rqs 'SearchHistoryAsync' "$EXT/ui" && echo y || echo n)" "y" "search calls SearchHistory"
+    chk "$(grep -rqs 'SEARCH_DEBOUNCE'    "$EXT/ui" && echo y || echo n)" "y" "search input is debounced"
+
+    # --- runtime: stub browse + search seams; open and exercise the search box ---
+    nested_eval "(function(){
+      var e=$LU, sh=e._shelf;
+      globalThis._bM=[]; for (var i=0;i<10;i++) _bM.push({id:'b'+i,mime_type:'text/plain',content_text:'browse '+i,created_at:i,has_thumbnail:false});
+      globalThis._res={foo:[],abc:[]};
+      for (var i=0;i<45;i++) _res.foo.push({id:'f'+i,mime_type:'text/plain',content_text:'foo result '+i,created_at:i,has_thumbnail:false});
+      for (var i=0;i<4;i++)  _res.abc.push({id:'a'+i,mime_type:'text/plain',content_text:'abc '+i,created_at:i,has_thumbnail:false});
+      globalThis._sq=[]; globalThis._bq=0;
+      sh._fetchPage  =function(o,l){ _bq++; return Promise.resolve(_bM.slice(o,o+l)); };
+      sh._fetchSearch=function(q,l){ _sq.push([q,l]); return Promise.resolve((_res[q]||[]).slice()); };
+      // Record that the search box receives focus on open (headless stage focus
+      // decays over time, so we latch the key-focus-in rather than poll it late).
+      globalThis._foc=0;
+      e._searchEntry.get_clutter_text().connect('key-focus-in', function(){ globalThis._foc++; });
+      e._showVisor(); return 1;
+    })()" >/dev/null 2>&1
+    sleep 0.6
+    chk "$(evnum "(function(){return (globalThis._foc>=1)?1:0;})()")" "1" "search box is focused on open (search-first)"
+    chk "$(evnum "$LU._shelf._cardBox.get_n_children()")" "10" "opens in browse view (recent history)"
+
+    # type 'foo' -> debounced SearchHistory('foo', max-history) -> 45 results via idle_add batches
+    nested_eval "(function(){ $LU._shelf.renderStats.batches=0; $LU._searchEntry.set_text('foo'); return 1; })()" >/dev/null 2>&1
+    sleep 0.5
+    chk "$(evnum "globalThis._sq.length")" "1" "typing issues one SearchHistory query (debounced)"
+    chk "$(evnum "(function(){return (globalThis._sq[0][0]==='foo')?1:0;})()")" "1" "query string is passed to SearchHistory"
+    chk "$(evnum "globalThis._sq[0][1]")" "200" "SearchHistory limit is max-history (200)"
+    chk "$(evnum "$LU._shelf._cardBox.get_n_children()")" "45" "search results replace the shelf"
+    chk "$(evnum "$LU._shelf.renderStats.batches")" "3" "results render through the same idle_add batches (45 => 3)"
+
+    # three rapid keystrokes collapse to a single query (debounce)
+    nested_eval "(function(){ globalThis._sq=[]; var en=$LU._searchEntry; en.set_text('a'); en.set_text('ab'); en.set_text('abc'); return 1; })()" >/dev/null 2>&1
+    sleep 0.5
+    chk "$(evnum "globalThis._sq.length")" "1" "3 rapid keystrokes debounce to 1 query"
+    chk "$(evnum "(function(){return (globalThis._sq[globalThis._sq.length-1][0]==='abc')?1:0;})()")" "1" "only the final keystroke's query runs"
+    chk "$(evnum "$LU._shelf._cardBox.get_n_children()")" "4" "shelf shows the final query's results"
+
+    # clear the box -> browse view restored
+    nested_eval "(function(){ globalThis._bq=0; $LU._searchEntry.set_text(''); return 1; })()" >/dev/null 2>&1
+    sleep 0.5
+    chk "$(evnum "(function(){return (globalThis._bq>=1)?1:0;})()")" "1" "empty query re-fetches recent history (GetHistory)"
+    chk "$(evnum "$LU._shelf._cardBox.get_n_children()")" "10" "empty query restores the browse view"
+
+    # epoch guard: a superseded search response must not paint over a newer one
+    nested_eval "(function(){
+      var sh=$LU._shelf;
+      globalThis._gate={}; globalThis._er={s1:[],s2:[]};
+      for (var i=0;i<3;i++) _er.s1.push({id:'x'+i,mime_type:'text/plain',content_text:'s1 '+i,created_at:i});
+      for (var i=0;i<7;i++) _er.s2.push({id:'y'+i,mime_type:'text/plain',content_text:'s2 '+i,created_at:i});
+      sh._fetchSearch=function(q,l){ return new Promise(function(res){ _gate[q]=function(){ res(_er[q].slice()); }; }); };
+      sh._runQuery('s1'); sh._runQuery('s2'); return 1;
+    })()" >/dev/null 2>&1
+    sleep 0.2
+    nested_eval "(function(){ globalThis._gate.s1(); return 1; })()" >/dev/null 2>&1   # stale response resolves first
+    sleep 0.2
+    nested_eval "(function(){ globalThis._gate.s2(); return 1; })()" >/dev/null 2>&1   # newest resolves second
+    sleep 0.4
+    chk "$(evnum "$LU._shelf._cardBox.get_n_children()")" "7" "newest search wins (7 results), not the stale 3"
+    chk "$(evnum "(function(){return $LU._shelf._cards.has('x0')?1:0;})()")" "0" "stale search response is dropped (epoch guard)"
+    ;;
+
   *) echo "  note: no feature-specific checks for $ID (generic only)";;
 esac
 

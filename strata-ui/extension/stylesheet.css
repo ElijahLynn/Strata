@@ -5,6 +5,23 @@
   border-bottom: 1px solid rgba(255, 255, 255, 0.10);
 }
 
+/* Header row (search box; gear lands in 008). */
+.strata-visor-header {
+  padding: 10px 14px 4px 14px;
+  spacing: 10px;
+}
+.strata-search {
+  padding: 7px 12px;
+  border-radius: 8px;
+  background-color: rgba(255, 255, 255, 0.07);
+  color: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.strata-search:focus {
+  border-color: rgba(120, 170, 255, 0.85);
+  background-color: rgba(255, 255, 255, 0.10);
+}
+
 /* Horizontal shelf of cards inside the band. */
 .strata-shelf-scroll {
   padding: 0;

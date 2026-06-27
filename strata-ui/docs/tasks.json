@@ -84,7 +84,7 @@
         "v1-spec.md",
         "ADR-0003"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "005",

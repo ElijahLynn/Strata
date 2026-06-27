@@ -3,6 +3,32 @@ Newest entries on top. Each coding session appends what it did + how to verify.
 Harness: https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents
 
 ────────────────────────────────────────────────────────────────────────
+2026-06-27 — 004: Search (FTS5 prefix) (TDD red→green, verified headlessly)
+- extension.js: band is now vertical [header, shelf]. Header has an St.Entry
+  search box (search-first); text-changed → shelf.setQuery(). On each summon the
+  box is cleared and focused. FOCUS GOTCHA: setting key focus synchronously right
+  after Main.pushModal doesn't stick headless (and the modal settles focus after
+  we return) → focus is deferred one GLib.idle tick. (Headless stage focus also
+  decays over time — a nested-shell artifact; live sessions keep it.)
+- shelf.js: setQuery() debounces 150ms (SEARCH_DEBOUNCE_MS); _runQuery() bumps a
+  _searchEpoch and either restores browse (empty) or calls SearchHistory(query,
+  max-history) via the _fetchSearch seam. Stale responses are dropped by the
+  epoch guard; results render through the SAME _renderBatched idle_add pipeline
+  (_renderResults: no browse pagination, _hasMore=false). load() cancels any
+  in-flight/pending search when returning to browse.
+- gschema: added max-history (200) — reused Strata key; bounds search. (Rest of
+  the reused keys + prefs UI come in 008.)
+- TEST FIRST: verify.sh case 004 stubs _fetchPage + _fetchSearch, asserts
+  focus-on-open (latched via key-focus-in, robust to the headless decay),
+  browse-on-open, SearchHistory('foo',200) with 45 results in 3 idle batches,
+  3 keystrokes→1 query (debounce), empty→browse restore, and a gated epoch-guard
+  (s1 resolves after s2 → s1 dropped, 7 results win). RED before impl, GREEN
+  after; 002 + 003 re-verified (no regression).
+- Run: bash test-harness/verify.sh 004   (shot: test-harness/screenshots/004.png)
+- NEXT ready: 005 (select & copy-and-dismiss) / 006 (peek) / 007 (typed cards) /
+  009 (live signals) — blockedBy 002✓; 008 blockedBy 001✓.
+
+────────────────────────────────────────────────────────────────────────
 2026-06-27 — 003: Image thumbnails (TDD red→green, verified headlessly)
 - card.js now branches: image mime → a thumb container (St.Widget + BinLayout)
   with a placeholder icon; applyThumbnail(fileUri) swaps in a CSS background-image

@@ -65,6 +65,7 @@ export default class StrataUIExtension extends Extension {
         this._visor?.destroy();   // also destroys the band child
         this._visor = null;
         this._band = null;
+        this._searchEntry = null;
         if (this._daemonRestartTimerId !== null) {
             GLib.Source.remove(this._daemonRestartTimerId);
             this._daemonRestartTimerId = null;
@@ -92,12 +93,29 @@ export default class StrataUIExtension extends Extension {
 
         this._band = new St.BoxLayout({
             style_class: 'strata-visor-band',
+            vertical: true,
             x_expand: true,
             reactive: true,
         });
+
+        // Header: search box (search-first). The gear button arrives in 008.
+        const header = new St.BoxLayout({style_class: 'strata-visor-header', x_expand: true});
+        this._searchEntry = new St.Entry({
+            style_class: 'strata-search',
+            hint_text: 'Search clipboard…',
+            x_expand: true,
+            can_focus: true,
+        });
+        this._searchEntry.get_clutter_text().connect('text-changed', () => {
+            this._shelf?.setQuery(this._searchEntry.get_text());
+        });
+        header.add_child(this._searchEntry);
+
         // The shelf renders clipboard history as a horizontal band of cards,
         // paginated from the daemon and loaded on each open.
         this._shelf = new Shelf(this._proxy, this._settings);
+
+        this._band.add_child(header);
         this._band.add_child(this._shelf.actor);
         this._visor.add_child(this._band);
 
@@ -148,8 +166,17 @@ export default class StrataUIExtension extends Extension {
         this._visorVisible = true;
         // Instant — no animation (ADR-0004). Grab keyboard so Escape works.
         this._grab = Main.pushModal(this._visor, {actionMode: Shell.ActionMode.NORMAL});
-        this._visor.grab_key_focus();
         this._shelf?.load();   // pull current history (page 0) on every summon
+        // Search-first: each summon starts in browse with an empty, focused box.
+        // (load() already shows browse; clearing leftover text just resets the UI.)
+        this._searchEntry?.set_text('');
+        // Focus must be deferred one tick: set synchronously right after pushModal
+        // it doesn't stick (the modal grab settles focus after we return).
+        GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+            if (this._visorVisible && this._searchEntry)
+                global.stage.set_key_focus(this._searchEntry.get_clutter_text());
+            return GLib.SOURCE_REMOVE;
+        });
         console.log('[Strata UI] visor shown');
     }
 

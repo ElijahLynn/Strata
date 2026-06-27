@@ -36,5 +36,12 @@
       <description>The shelf loads this many cards on open and again each time the horizontal scroll nears the end. The full table never sits in JS memory.</description>
     </key>
 
+    <key name="max-history" type="i">
+      <default>200</default>
+      <range min="50" max="2000"/>
+      <summary>Maximum number of clipboard history items to keep</summary>
+      <description>Also bounds search: SearchHistory returns up to this many matches. Reuses Strata's key (the rest of the reused keys land with the prefs UI in 008).</description>
+    </key>
+
   </schema>
 </schemalist>
