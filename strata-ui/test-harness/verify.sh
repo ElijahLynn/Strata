@@ -166,7 +166,7 @@ case "$ID" in
     sleep 0.5
     chk "$(evnum "globalThis._sq.length")" "1" "typing issues one SearchHistory query (debounced)"
     chk "$(evnum "(function(){return (globalThis._sq[0][0]==='foo')?1:0;})()")" "1" "query string is passed to SearchHistory"
-    chk "$(evnum "globalThis._sq[0][1]")" "200" "SearchHistory limit is max-history (200)"
+    chk "$(evnum "globalThis._sq[0][1]")" "2000" "SearchHistory limit is max-history (2000)"
     chk "$(evnum "$LU._shelf._cardBox.get_n_children()")" "45" "search results replace the shelf"
     chk "$(evnum "$LU._shelf.renderStats.batches")" "3" "results render through the same idle_add batches (45 => 3)"
 
@@ -1464,6 +1464,49 @@ case "$ID" in
     sleep 1.0
     chk "$(evnum "$LU._shelf._cardBox.get_n_children()")" "0" "(empty corpus) the shelf has no cards"
     chk "$(focuseq "$LU._searchEntry.get_clutter_text()")" "1" "with NO cards, focus falls back to the search box"
+    ;;
+
+  028)
+    LU="Main.extensionManager.lookup('$UUID').stateObj"
+    GS="$EXT/schemas/org.gnome.shell.extensions.strata-ui.gschema.xml"
+    # --- Slice 028: gschema default values updated for a better out-of-box experience.
+    #     visor-height 360->300, card-width 300->240, max-history 200->2000,
+    #     move-activated-to-top stays true (already was true; confirm no regression).
+    #
+    # USER-OBSERVABLE asserts:
+    #   1. The COMPILED schema default for visor-height is 300 (not 360).
+    #   2. The COMPILED schema default for card-width is 240 (not 300).
+    #   3. The COMPILED schema default for max-history is 2000 (not 200).
+    #   4. The COMPILED schema default for move-activated-to-top is true.
+    #   5. On a fresh (no-override) profile, the live band height is 300.
+    #   6. On a fresh (no-override) profile, a rendered card is 240px wide.
+    #
+    # The nested shell launches with an isolated temp XDG profile (no gsettings
+    # overrides), so get_int/get_boolean read schema defaults, not user overrides.
+    # Recompiling the schema before nested_up happens at the top of this script.
+
+    # --- static: verify the XML <default> values in the gschema source ---
+    chk "$(grep -A3 'name="visor-height"' "$GS" | grep -oE '<default>[0-9]+</default>' | grep -oE '[0-9]+')" "300" "gschema visor-height <default> is 300"
+    chk "$(grep -A3 'name="card-width"' "$GS" | grep -oE '<default>[0-9]+</default>' | grep -oE '[0-9]+')" "240" "gschema card-width <default> is 240"
+    chk "$(grep -A3 'name="max-history"' "$GS" | grep -oE '<default>[0-9]+</default>' | grep -oE '[0-9]+')" "2000" "gschema max-history <default> is 2000"
+    chk "$(grep -A3 'name="move-activated-to-top"' "$GS" | grep -oE '<default>(true|false)</default>' | grep -oE 'true|false')" "true" "gschema move-activated-to-top <default> is true"
+
+    # --- runtime: on a fresh profile (no overrides), the settings read the compiled defaults ---
+    chk "$(evnum "$LU._settings.get_int('visor-height')")" "300" "fresh profile: settings visor-height default is 300"
+    chk "$(evnum "$LU._settings.get_int('card-width')")" "240" "fresh profile: settings card-width default is 240"
+    chk "$(evnum "$LU._settings.get_int('max-history')")" "2000" "fresh profile: settings max-history default is 2000"
+    chk "$(nested_eval "$LU._settings.get_boolean('move-activated-to-top')" 2>/dev/null | grep -oE 'true|false' | head -1)" "true" "fresh profile: settings move-activated-to-top default is true"
+
+    # --- runtime: open the visor and assert the LIVE band height is 300 and cards are 240px wide ---
+    nested_eval "(function(){
+      var e=$LU, sh=e._shelf;
+      globalThis._dM=[]; for (var i=0;i<6;i++) _dM.push({id:'d28'+i,mime_type:'text/plain',content_text:'card '+i,created_at:i,has_thumbnail:false});
+      sh._fetchPage=function(o,l){ return Promise.resolve(_dM.slice(o,o+l)); };
+      e._showVisor(); return 1;
+    })()" >/dev/null 2>&1
+    sleep 0.9
+    chk "$(evnum "Math.round($LU._band.get_height())")" "300" "live visor band height is 300px (visor-height default applied)"
+    chk "$(evnum "(function(){var c=$LU._shelf._cards.get('d280'); return c?Math.round(c.get_width()):-1;})()")" "240" "live card width is 240px (card-width default applied)"
     ;;
 
   *) echo "  note: no feature-specific checks for $ID (generic only)";;

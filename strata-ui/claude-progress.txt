@@ -5,6 +5,26 @@ Entries are headed with a UTC ISO-8601 timestamp (YYYY-MM-DDThh:mm:ssZ, from
 Harness: https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents
 
 ────────────────────────────────────────────────────────────────────────
+2026-06-27T23:50:46Z — 028: Update default settings (visor-height 300, card-width 240, max-history 2000, move-activated-to-top true)
+
+WHAT WAS DONE. Changed three gschema <default> values in
+extension/schemas/org.gnome.shell.extensions.strata-ui.gschema.xml:
+  - visor-height: 360 -> 300 (within range 200-900)
+  - card-width:   300 -> 240 (within range 200-600)
+  - max-history:  200 -> 2000 (within range 50-2000, now at the schema max)
+  - move-activated-to-top: already true, confirmed and left unchanged.
+
+Also updated verify.sh case 004 to expect SearchHistory limit 2000 (was 200;
+the shelf reads max-history from settings at runtime so the new default
+propagates immediately).
+
+TDD RED->GREEN->TEETH: wrote case 028 first (RED against old 360/300/200
+defaults). Applied gschema changes -> GREEN. Reverted visor-height to 360 ->
+RED (3 failures on visor-height assertions). Restored -> GREEN.
+`verify.sh all`: PASS 001 002 003 004 005 006 007 008 009 010 011 012 013
+014 016 017 018 020 021 023 024 028, FAIL: (none), ALL GREEN.
+
+────────────────────────────────────────────────────────────────────────
 2026-06-27T23:45:19Z — 025: visor opens focused on the first card; empty falls back to search (TDD red→green→teeth)
 
 WHAT CHANGED. The visor used to open with keyboard focus on the SEARCH box

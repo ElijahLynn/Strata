@@ -18,13 +18,13 @@
     </key>
 
     <key name="visor-height" type="i">
-      <default>360</default>
+      <default>300</default>
       <range min="200" max="900"/>
       <summary>Visor height in pixels</summary>
     </key>
 
     <key name="card-width" type="i">
-      <default>300</default>
+      <default>240</default>
       <range min="200" max="600"/>
       <summary>Width of a shelf card in pixels</summary>
     </key>
@@ -37,7 +37,7 @@
     </key>
 
     <key name="max-history" type="i">
-      <default>200</default>
+      <default>2000</default>
       <range min="50" max="2000"/>
       <summary>Maximum number of clipboard history items to keep</summary>
       <description>Also bounds search: SearchHistory returns up to this many matches. Reuses Strata's key (the rest of the reused keys land with the prefs UI in 008).</description>
