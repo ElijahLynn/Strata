@@ -5,6 +5,31 @@ Entries are headed with a UTC ISO-8601 timestamp (YYYY-MM-DDThh:mm:ssZ, from
 Harness: https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents
 
 ────────────────────────────────────────────────────────────────────────
+2026-06-27T16:04:53Z — 015: Harness — full regression suite (verify.sh all)
+- Found-in-use review: v1 shipped "headless-green" but five real bugs reached a
+  live session (no clipboard capture, Left/Right stuck in search, paste-back
+  pastes the most-recent entry, gear opens no prefs, install.sh never says to
+  disable the original extension). Root cause of the ESCAPE: nothing ran the
+  whole suite, and some features were flipped on a syntax-check alone. Those bugs
+  are now test-first slices 010-014; this slice closes the process hole.
+- verify.sh: new `verify.sh all` mode. It enumerates every feature id that has a
+  `case` block (grep of the script itself → 001-009 today; 015 has no case so it
+  is excluded), runs each in its own throwaway nested shell via `bash "$0" <id>`,
+  prints a PASS/FAIL summary, and exits non-zero if ANY case fails. Short-circuits
+  BEFORE the single-case nested_up so the parent never boots a shell of its own.
+- coding-prompt.md step 5 + AGENTS.md now REQUIRE `verify.sh all` green before
+  flipping passes/committing (not just the current id). AGENTS.md (new) codifies
+  the loop: every change is a tested tasks.json slice; never flip passes on a
+  syntax-check alone. Log entries gain UTC ISO-8601 timestamps.
+- Verified: `verify.sh all` → 001-009 all PASS, summary correct, exit 0 (ALL
+  GREEN). Fail propagation confirmed by construction — a failed assert makes a
+  case `exit 1`, which the loop turns into rc=1 / REGRESSIONS PRESENT.
+- Run: bash test-harness/verify.sh all
+- NEXT (per the loop, lowest passes:false with blockedBy met): 010 capture,
+  011 nav, 012 paste-back, 013 gear, 014 install docs. 012/013 need a live
+  journal to root-cause (may not reproduce headlessly).
+
+────────────────────────────────────────────────────────────────────────
 2026-06-27 — starting 007: Card renderers (URL, color, file)
 2026-06-27 — 007: Card renderers (URL, color, file) (TDD red→green, verified headlessly)
 - card.js: now classifies each entry once, on the client, with cheap regex

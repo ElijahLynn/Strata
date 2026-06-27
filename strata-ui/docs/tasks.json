@@ -313,7 +313,7 @@
         "test-harness/coding-prompt.md",
         "AGENTS.md"
       ],
-      "passes": false
+      "passes": true
     }
   ]
 }

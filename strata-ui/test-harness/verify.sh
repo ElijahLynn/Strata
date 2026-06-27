@@ -15,6 +15,24 @@ mkdir --parents "$(dirname "$SHOT")"
 [ -f "$EXT/metadata.json" ] || { echo "verify $ID: no extension/ built yet"; exit 1; }
 glib-compile-schemas "$EXT/schemas" 2>/dev/null || true
 
+# --- regression suite (slice 015): `verify.sh all` runs every feature id that
+#     has a case block below, each in its own throwaway nested shell, and exits
+#     non-zero if ANY fails. Short-circuits before the single-case setup so the
+#     parent never boots a shell of its own. ---
+if [ "$ID" = "all" ]; then
+  ids=$(grep -oE '^[[:space:]]+[0-9]{3}\)' "$0" | grep -oE '[0-9]{3}' | sort --unique)
+  passed=""; failed=""; rc=0
+  for id in $ids; do
+    printf '\n==================== verify %s ====================\n' "$id"
+    if bash "$0" "$id"; then passed="$passed $id"; else failed="$failed $id"; rc=1; fi
+  done
+  printf '\n==================== regression summary ====================\n'
+  printf '  PASS:%s\n' "${passed:- (none)}"
+  printf '  FAIL:%s\n' "${failed:- (none)}"
+  [ "$rc" -eq 0 ] && echo "  ALL GREEN" || echo "  REGRESSIONS PRESENT"
+  exit "$rc"
+fi
+
 source "$HARNESS/launch-nested.sh"
 trap nested_down EXIT
 STAGE="$(mktemp -d)"; cp -r "$EXT" "$STAGE/$UUID"
