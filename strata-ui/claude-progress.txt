@@ -3,6 +3,36 @@ Newest entries on top. Each coding session appends what it did + how to verify.
 Harness: https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents
 
 ────────────────────────────────────────────────────────────────────────
+2026-06-27 — starting 007: Card renderers (URL, color, file)
+2026-06-27 — 007: Card renderers (URL, color, file) (TDD red→green, verified headlessly)
+- card.js: now classifies each entry once, on the client, with cheap regex
+  (ADR-0007 "whatever Strata does now") and renders a type-specific body —
+  cardType ∈ image|file|link|color|text:
+    • image: mime image/* → the existing thumbnail card (003).
+    • file:  mime text/uri-list / *copied-files* → folder/file icon + basename(s)
+      parsed from the file:// URIs (the gnome/kde "copied-files" leading op line
+      has no file:// prefix, so it's skipped); "+N more" subtitle for multiples.
+    • link:  whole trimmed content matches ^https?://…$ → URL label (link-styled)
+      with the hostname (www. stripped) as a subtitle. A string that only CONTAINS
+      a URL stays Text (whole-content match, like Strata).
+    • color: whole content matches #rgb / #rrggbb → a swatch (background-color =
+      the hex, safe because it came straight from the regex) + the hex label.
+    • text:  everything else — the St.Label preview card (unchanged).
+  isImage is now derived from cardType (the shelf still gates thumbnails on it).
+  Still St.Label only — the swatch is a CSS background-color, no set_markup.
+- stylesheet.css: link/subtitle/swatch/file styles.
+- TEST FIRST: verify.sh case 007 feeds one meta per type (+ an image, + a
+  "contains a URL but isn't one" string), asserts each card's cardType and its
+  type-specific body — link hostname subtitle = example.com, swatch style carries
+  the hex, file card shows photo.png + an St.Icon, plain & contains-URL stay Text,
+  image stays Image, Text body is still an St.Label. Statics: cardType present,
+  classification is client regex, no set_markup. RED before impl, GREEN after;
+  002/003/005/006 re-verified (no regression — card.js was rewritten).
+- Run: bash test-harness/verify.sh 007   (shot: test-harness/screenshots/007.png)
+- NEXT ready: 009 (live signals) — blockedBy 002✓; 008 (settings/prefs)
+  blockedBy 001✓. (006 done; only 008 + 009 remain for v1-mvp.)
+
+────────────────────────────────────────────────────────────────────────
 2026-06-27 — starting 006: Peek (Space)
 2026-06-27 — 006: Peek (Space) (TDD red→green, verified headlessly)
 - NEW extension/ui/peek.js: the Peek overlay (a child of the visor, BinLayout,

@@ -149,7 +149,7 @@
         "v1-spec.md",
         "reference/copyous-good-parts.md"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "008",

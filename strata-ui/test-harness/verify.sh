@@ -351,6 +351,58 @@ case "$ID" in
     sleep 0.3
     ;;
 
+  007)
+    LU="Main.extensionManager.lookup('$UUID').stateObj"
+    # --- static asserts: cheap client-side regex classification; St.Label only ---
+    chk "$(grep -rqs 'cardType' "$EXT/ui/card.js" && echo y || echo n)" "y" "cards are classified by type (cardType)"
+    if grep -rqs 'set_markup(' "$EXT/ui" "$EXT/extension.js"; then
+      echo "  FAIL: set_markup() found (clipboard content must never be parsed as markup)"; fail=1
+    else echo "  ok  : no set_markup() anywhere (St.Label only)"; fi
+    # classification must stay on the client (regex) — no daemon round-trip for type
+    chk "$(grep -rqs 'test(' "$EXT/ui/card.js" && echo y || echo n)" "y" "classification is cheap client-side regex"
+
+    # --- runtime: feed one meta per type; assert each renders its type-specific body ---
+    nested_eval "(function(){
+      var e=$LU, sh=e._shelf, NL=String.fromCharCode(10);
+      globalThis._URIS=['file:///home/user/photo.png','file:///home/user/notes.txt'].join(NL);
+      globalThis._bM=[
+        {id:'url',   mime_type:'text/plain',   content_text:'https://example.com/path?q=1', created_at:9, has_thumbnail:false},
+        {id:'col3',  mime_type:'text/plain',   content_text:'#3af',                          created_at:8, has_thumbnail:false},
+        {id:'col6',  mime_type:'text/plain',   content_text:'#1188ff',                       created_at:7, has_thumbnail:false},
+        {id:'file',  mime_type:'text/uri-list',content_text:globalThis._URIS,                created_at:6, has_thumbnail:false},
+        {id:'plain', mime_type:'text/plain',   content_text:'just some regular note text',   created_at:5, has_thumbnail:false},
+        {id:'img',   mime_type:'image/png',    content_text:null,                            created_at:4, has_thumbnail:true},
+        {id:'noturl',mime_type:'text/plain',   content_text:'visit https://x.io for info',   created_at:3, has_thumbnail:false}
+      ];
+      sh._fetchPage=function(o,l){ return Promise.resolve(_bM.slice(o,o+l)); };
+      sh._fetchThumbnail=function(id){ return Promise.resolve(new Uint8Array([137,80,78,71])); };
+      e._showVisor(); return 1;
+    })()" >/dev/null 2>&1
+    sleep 0.8
+    ctype(){ nested_eval "(function(){var c=$LU._shelf._cards.get('$1'); return c?c.cardType:'none';})()" 2>/dev/null | grep -oE "(link|color|file|text|image|none)" | head -1; }
+
+    # URL → link card with the hostname as a subtitle
+    chk "$(ctype url)" "link" "a URL entry renders as a Link card"
+    chk "$(evnum "(function(){var c=$LU._shelf._cards.get('url'); return (c._subtitle && c._subtitle.get_text()==='example.com')?1:0;})()")" "1" "Link card shows the hostname as a subtitle"
+
+    # #rgb / #rrggbb → color swatch carrying the hex
+    chk "$(ctype col3)" "color" "a #rgb entry renders as a Color card"
+    chk "$(ctype col6)" "color" "a #rrggbb entry renders as a Color card"
+    chk "$(evnum "(function(){var c=$LU._shelf._cards.get('col3'); return ((c._swatch.style||'').toLowerCase().indexOf('#3af')>=0)?1:0;})()")" "1" "Color card swatch uses the hex as its background-color"
+
+    # uri-list → file card with filename(s) + icon
+    chk "$(ctype file)" "file" "a uri-list entry renders as a File card"
+    chk "$(evnum "(function(){var c=$LU._shelf._cards.get('file'); return ((c._fileText.get_text()||'').indexOf('photo.png')>=0)?1:0;})()")" "1" "File card shows the filename(s)"
+    chk "$(evnum "(function(){var c=$LU._shelf._cards.get('file'); var S=imports.gi.St; return (c._fileIcon instanceof S.Icon)?1:0;})()")" "1" "File card shows an icon"
+
+    # everything else stays a Text card (incl. a string that merely CONTAINS a URL)
+    chk "$(ctype plain)" "text" "a plain string stays a Text card"
+    chk "$(ctype noturl)" "text" "a string that only contains a URL stays a Text card (whole-content match)"
+    chk "$(ctype img)" "image" "an image entry still renders as an Image card"
+    # Text card still uses an St.Label (no markup)
+    chk "$(evnum "(function(){var S=imports.gi.St,c=$LU._shelf._cards.get('plain'); return (c._textLabel instanceof S.Label)?1:0;})()")" "1" "Text card body is an St.Label"
+    ;;
+
   *) echo "  note: no feature-specific checks for $ID (generic only)";;
 esac
 

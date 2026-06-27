@@ -53,6 +53,44 @@
   font-size: 14px;
 }
 
+/* Link card (007): the URL, link-styled, with the hostname as a subtitle. */
+.strata-card-link-url {
+  color: rgba(120, 170, 255, 0.95);
+  font-size: 14px;
+}
+.strata-card-subtitle {
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 12px;
+  padding-top: 4px;
+}
+
+/* Color card (007): a swatch filled with the hex, the hex string below it. */
+.strata-card-color {
+  spacing: 8px;
+}
+.strata-card-swatch {
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  min-height: 120px;
+}
+.strata-card-color-hex {
+  color: rgba(255, 255, 255, 0.85);
+  font-family: monospace;
+  font-size: 14px;
+}
+
+/* File(s) card (007): an icon next to the filename(s). */
+.strata-card-file {
+  spacing: 12px;
+}
+.strata-card-file-icon {
+  color: rgba(255, 255, 255, 0.7);
+}
+.strata-card-file-name {
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 14px;
+}
+
 /* Image card: the thumbnail fills the card body; a placeholder icon shows
    until the shelf fetches the thumbnail for this (visible) card. */
 .strata-card-thumb {
