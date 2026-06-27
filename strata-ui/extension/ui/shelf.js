@@ -29,6 +29,12 @@ export class Shelf {
         this._settings = settings;
         this._onPick = opts.onPick ?? null; // called to dismiss after a copy
         this._peekHost = opts.peekHost ?? null; // actor the Peek overlay lives in
+        // One-shot "first page rendered" callback (feature 025). Set per-open by
+        // the visor so it can focus the first card AFTER it actually exists — the
+        // page renders asynchronously (idle_add batches, 002), so focusing on
+        // open synchronously would land on nothing. Invoked once, with the shelf,
+        // after load()'s page-0 render settles (whether or not any card landed).
+        this._onFirstPage = null;
 
         this._pageSize = settings.get_int('page-size');
         this._cardWidth = settings.get_int('card-width');
@@ -229,6 +235,9 @@ export class Shelf {
         } catch (e) {
             console.error('[Strata UI] GetHistory failed:', e);
             if (epoch === this._loadEpoch) this._loadingMore = false;
+            // Page 0 failed → still notify so the visor can fall back to search
+            // (feature 025); without this an open with a dead daemon has no focus.
+            if (offset === 0) this._notifyFirstPage(epoch);
             return;
         }
         if (epoch !== this._loadEpoch || !this._cardBox) return; // superseded / destroyed
@@ -237,12 +246,25 @@ export class Shelf {
         this._loadedOffset = offset + metas.length;
         this._hasMore = metas.length >= this._pageSize;
         this._loadingMore = false;
+        // Page 0 of a fresh load has rendered: the first card (if any) now exists,
+        // so the visor can place focus on it (feature 025). One-shot, post-render.
+        if (offset === 0) this._notifyFirstPage(epoch);
         // Backstop: once the page has had a chance to lay out, load thumbnails
         // for whatever ended up visible (in case no adjustment signal fired).
         GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
             if (epoch === this._loadEpoch) this._updateVisibleThumbs();
             return GLib.SOURCE_REMOVE;
         });
+    }
+
+    /** Fire the one-shot "first page rendered" callback set by the visor for this
+     *  open (feature 025), but only if this is still the active load (a newer
+     *  load() will fire its own). Clears it so a later page never re-triggers. */
+    _notifyFirstPage(epoch) {
+        if (epoch !== this._loadEpoch) return; // superseded → the newer load notifies
+        const cb = this._onFirstPage;
+        this._onFirstPage = null;
+        if (cb) cb(this);
     }
 
     /** Insert cards in idle_add chunks of RENDER_BATCH so a full page never
@@ -520,6 +542,28 @@ export class Shelf {
      *  printable key / Up should be redirected to the search box. */
     hasFocusedCard() {
         return !!this._cardFromActor(global.stage.get_key_focus());
+    }
+
+    /** Register the one-shot callback fired after the next load()'s page-0 render
+     *  settles (feature 025). The visor uses it to focus the first card once it
+     *  actually exists (cards render asynchronously). */
+    onFirstPage(cb) { this._onFirstPage = cb; }
+
+    /** Number of cards currently on the shelf (feature 025: lets the visor decide
+     *  card-first vs. search-box fallback on open). */
+    cardCount() { return this._cardBox ? this._cardBox.get_n_children() : 0; }
+
+    /** Focus the first (most-recent) card with the whole-card highlight, scrolling
+     *  it into view (feature 025: visor opens card-first). Returns false when there
+     *  are no cards, so the visor falls back to focusing the search box. Reuses the
+     *  same set_key_focus path as Left/Right nav, so the per-card key-focus-in adds
+     *  .strata-card-focused exactly as it does mid-navigation. */
+    focusFirstCard() {
+        const first = this._cardBox?.get_first_child();
+        if (!first) return false;
+        global.stage.set_key_focus(first);
+        this._ensureCardVisible(first);
+        return true;
     }
 
     /** Move key focus between cards (Left/Right), scrolling the target into view.

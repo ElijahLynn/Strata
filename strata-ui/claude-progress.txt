@@ -5,6 +5,57 @@ Entries are headed with a UTC ISO-8601 timestamp (YYYY-MM-DDThh:mm:ssZ, from
 Harness: https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents
 
 ────────────────────────────────────────────────────────────────────────
+2026-06-27T23:45:19Z — 025: visor opens focused on the first card; empty falls back to search (TDD red→green→teeth)
+
+WHAT CHANGED. The visor used to open with keyboard focus on the SEARCH box
+(slice 004 "search-first"). It now opens with focus on the FIRST (most-recent)
+card, shown with the whole-card highlight (.strata-card-focused), so Left/Right
+work immediately and typing refines the search (routed by 023; Up returns to
+search per 023). With NO cards (empty history / empty search) focus falls back to
+the search box.
+
+HOW. The first card renders ASYNCHRONOUSLY (idle_add batches, 002), so focusing
+"the first card" on open had to wait until the card actually exists — never a blind
+timeout. Added a one-shot readiness seam on the Shelf:
+  * shelf.js: _onFirstPage callback + onFirstPage(cb) setter; _loadPage fires it
+    via _notifyFirstPage(epoch) AFTER page-0's _renderBatched settles (and on the
+    page-0 fetch-error path too, so a dead daemon still hands focus to search). It
+    only fires for the active load epoch (a superseded load lets the newer one
+    notify) and is one-shot (cleared on fire), so a later page never re-grabs focus.
+  * shelf.js: focusFirstCard() (reuses the Left/Right set_key_focus + _ensureCardVisible
+    path, so key-focus-in adds .strata-card-focused exactly as in nav) and cardCount().
+  * extension.js _showVisor(): registers onFirstPage(() => _focusInitialTarget())
+    BEFORE load(); removed the old idle_add that focused the search entry.
+  * extension.js _focusInitialTarget(): focuses the first card if cardCount()>0 else
+    the search box (_focusSearch). STICKY re-assert: on the FIRST open of a session
+    Main.pushModal settles stage focus ASYNCHRONOUSLY a tick AFTER our callback runs
+    (observed transitions: visor -> card -> null), clobbering the card focus. So a
+    one-shot guard connects to global.stage 'notify::key-focus' and re-asserts the
+    card focus (bounded to 5 attempts) until focus lands on a card or the search box,
+    then disconnects; torn down on hide/disable (_teardownFocusGuard, _focusGuardId).
+    The search-box fallback needs no guard (an St.Entry's ClutterText keeps focus).
+
+TEST (verify.sh 025). Non-empty corpus → first card holds key focus AND carries
+.strata-card-focused on open, and the search box is NOT focused. Compose with 023:
+a real 'g' keystroke right after open routes to the search box and reaches the query
+(and copies/deletes NOTHING). Compose with 011: reopen, Right/Left still navigate.
+Empty corpus → focus falls back to the search box. RED first (focus was the search
+box, not the card); GREEN after; TEETH: commenting out focusFirstCard's set_key_focus
+turns it RED, restored to GREEN.
+
+SLICE 004 ADJUSTMENT. 004's old assertion "search box is focused on open (search-
+first)" became false. Replaced it with two asserts reflecting the new reality —
+opens focused on the FIRST card (025), and the search box is NOT focused on open —
+and removed the now-stale _foc key-focus-in latch. ALL of 004's search-behavior
+coverage is unchanged (one debounced SearchHistory query, query+limit passed, results
+replace the shelf via idle_add batches, 3 keystrokes debounce to 1, empty query
+restores browse, epoch guard drops a stale response); those later steps drive the
+search box directly via set_text, which is what 004 really protects.
+
+VERIFY. `verify.sh 025` → PASS; `verify.sh 004` → PASS; `verify.sh all` → ALL GREEN
+(001-025; 015/019/022 intentionally have no case).
+
+────────────────────────────────────────────────────────────────────────
 2026-06-27T23:43:27Z — 026: Hex color swatch label readable in both themes (contrast)
 
 WHAT WAS DONE. Added per-theme CSS rules for .strata-card-color-hex in

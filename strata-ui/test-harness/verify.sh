@@ -150,15 +150,16 @@ case "$ID" in
       globalThis._sq=[]; globalThis._bq=0;
       sh._fetchPage  =function(o,l){ _bq++; return Promise.resolve(_bM.slice(o,o+l)); };
       sh._fetchSearch=function(q,l){ _sq.push([q,l]); return Promise.resolve((_res[q]||[]).slice()); };
-      // Record that the search box receives focus on open (headless stage focus
-      // decays over time, so we latch the key-focus-in rather than poll it late).
-      globalThis._foc=0;
-      e._searchEntry.get_clutter_text().connect('key-focus-in', function(){ globalThis._foc++; });
       e._showVisor(); return 1;
     })()" >/dev/null 2>&1
-    sleep 0.6
-    chk "$(evnum "(function(){return (globalThis._foc>=1)?1:0;})()")" "1" "search box is focused on open (search-first)"
+    sleep 1.0
     chk "$(evnum "$LU._shelf._cardBox.get_n_children()")" "10" "opens in browse view (recent history)"
+    # Open-focus reality (slice 025): with cards present the visor opens focused on
+    # the FIRST card (whole-card highlight), NOT the search box. (The old search-
+    # first assertion became false when 025 landed; search still works below — the
+    # later assertions drive the search box directly, which is what 004 protects.)
+    chk "$(evnum "(function(){return global.stage.get_key_focus()===$LU._shelf._cardBox.get_first_child()?1:0;})()")" "1" "opens focused on the first card (025), not the search box"
+    chk "$(evnum "(function(){return global.stage.get_key_focus()===$LU._searchEntry.get_clutter_text()?1:0;})()")" "0" "the search box is NOT focused on open (no longer search-first)"
 
     # type 'foo' -> debounced SearchHistory('foo', max-history) -> 45 results via idle_add batches
     nested_eval "(function(){ $LU._shelf.renderStats.batches=0; $LU._searchEntry.set_text('foo'); return 1; })()" >/dev/null 2>&1
@@ -1394,6 +1395,75 @@ case "$ID" in
     read -r hr hg hb ha <<< "$sig"
     dctr="$(contrast "${hr:-0}" "${hg:-0}" "${hb:-0}" 28 28 34)"
     chk "$(awk -v c="${dctr:-0}" 'BEGIN{print (c>=4.5)?"ok":"low"}')" "ok" "dark: hex label contrast vs dark band is adequate (${dctr:-?}:1 >= 4.5)"
+    ;;
+
+  025)
+    LU="Main.extensionManager.lookup('$UUID').stateObj"
+    # --- the change: the visor used to open with key focus on the SEARCH box
+    #     (slice 004 "search-first"). The user wants it to open focused on the
+    #     FIRST (most-recent) card, shown with the whole-card focus highlight
+    #     (.strata-card-focused), so Left/Right work immediately and typing
+    #     refines the search (routed by 023). The first card renders ASYNCHRONOUSLY
+    #     (idle_add batches, 002), so the focus must land AFTER the first card
+    #     exists — never on the search box. With NO cards (empty history / empty
+    #     search) focus falls back to the search box.
+    #
+    # USER-OBSERVABLE asserts (real open, no internal focus poke):
+    #   * non-empty corpus → on open the first card holds key focus AND carries
+    #     .strata-card-focused (NOT the search entry);
+    #   * empty corpus     → on open focus is the search box;
+    #   * compose with 023 → a printable key right after open reaches the search
+    #     box; compose with 011 → Left/Right still navigate.
+
+    focuseq(){ evnum "(function(){return global.stage.get_key_focus()===$1?1:0;})()"; }
+    searchtext(){ nested_eval "(function(){return $LU._searchEntry.get_text();})()" 2>/dev/null; }
+
+    # --- non-empty corpus: open and assert focus lands on the FIRST card ---
+    nested_eval "(function(){
+      var e=$LU, sh=e._shelf;
+      globalThis._oM=[]; for (var i=0;i<8;i++) _oM.push({id:'o'+i,mime_type:'text/plain',content_text:'open '+i,created_at:i,has_thumbnail:false});
+      sh._fetchPage=function(o,l){ return Promise.resolve(_oM.slice(o,o+l)); };
+      sh._fetchSearch=function(q,l){ return Promise.resolve([]); };
+      // Spy copy/delete: typing right after open must do NEITHER (compose with 023).
+      globalThis._copied=[]; sh._fetchContent=function(id){ globalThis._copied.push(id); return Promise.resolve(['text/plain', new Uint8Array()]); };
+      globalThis._del=[]; e._proxy={ DeleteItemAsync:function(id){ globalThis._del.push(id); return Promise.resolve(); } };
+      sh._proxy=e._proxy;
+      e._showVisor(); return 1;
+    })()" >/dev/null 2>&1
+    sleep 1.0
+    # USER-OBSERVABLE 1: the FIRST card holds key focus on open (not the search box).
+    chk "$(focuseq "$LU._shelf._cardBox.get_first_child()")" "1" "visor opens with key focus on the FIRST card"
+    # USER-OBSERVABLE 2: that card carries the whole-card focus highlight class.
+    chk "$(evnum "(function(){return $LU._shelf._cardBox.get_first_child().has_style_class_name('strata-card-focused')?1:0;})()")" "1" "the first card carries .strata-card-focused on open"
+    # USER-OBSERVABLE 3: the search box is NOT the focused actor.
+    chk "$(focuseq "$LU._searchEntry.get_clutter_text()")" "0" "the search box is NOT focused on open (open is card-first, not search-first)"
+
+    # COMPOSE WITH 023: a printable key right after open routes to the search box.
+    nested_key g; sleep 0.4
+    chk "$(focuseq "$LU._searchEntry.get_clutter_text()")" "1" "typing right after open routes focus to the search box (023 composes)"
+    chk "$(searchtext | grep -qs 'g' && echo y || echo n)" "y" "the typed character ('g') reached the search box text (023 composes)"
+    chk "$(evnum "globalThis._copied.length")" "0" "typing right after open copies nothing (no card action fired)"
+    chk "$(evnum "globalThis._del.length")"    "0" "typing right after open deletes nothing (no card action fired)"
+
+    # COMPOSE WITH 011: reopen (back to browse), then Left/Right still navigate cards.
+    nested_eval "(function(){var e=$LU; e._hideVisor(); e._showVisor(); return 1;})()" >/dev/null 2>&1
+    sleep 1.0
+    chk "$(focuseq "$LU._shelf._cardBox.get_first_child()")" "1" "(reopen) focus is on the first card again"
+    nested_key Right; sleep 0.3
+    chk "$(focuseq "$LU._shelf._cardBox.get_children()[1]")" "1" "Right still navigates to the next card on open (011 not regressed)"
+    nested_key Left; sleep 0.3
+    chk "$(focuseq "$LU._shelf._cardBox.get_first_child()")" "1" "Left walks back to the first card (011 not regressed)"
+
+    # --- empty corpus: open with NO history → focus falls back to the search box ---
+    nested_eval "(function(){
+      var e=$LU, sh=e._shelf;
+      e._hideVisor();
+      sh._fetchPage=function(o,l){ return Promise.resolve([]); };
+      e._showVisor(); return 1;
+    })()" >/dev/null 2>&1
+    sleep 1.0
+    chk "$(evnum "$LU._shelf._cardBox.get_n_children()")" "0" "(empty corpus) the shelf has no cards"
+    chk "$(focuseq "$LU._searchEntry.get_clutter_text()")" "1" "with NO cards, focus falls back to the search box"
     ;;
 
   *) echo "  note: no feature-specific checks for $ID (generic only)";;

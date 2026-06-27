@@ -39,6 +39,7 @@ export default class StrataUIExtension extends Extension {
     _shelf = null;
     _visorVisible = false;
     _grab = null;
+    _focusGuardId = null;       // stage key-focus guard while the open-focus settles (025)
 
     /** Live-update state (feature 009). */
     _signalIds = null;          // daemon D-Bus signal subscription ids
@@ -314,6 +315,58 @@ export default class StrataUIExtension extends Extension {
         ct.set_cursor_position(-1);   // cursor to the end, ready for the next key
     }
 
+    /** Put keyboard focus on the search box. Used on open when there are no cards
+     *  to focus (feature 025 empty-corpus fallback) and anywhere the box should
+     *  reclaim focus. */
+    _focusSearch() {
+        const ct = this._searchEntry?.get_clutter_text();
+        if (ct) global.stage.set_key_focus(ct);
+    }
+
+    /** Place the visor's initial keyboard focus on open (feature 025): the first
+     *  card if any exist, else the search box. Fired by the shelf's onFirstPage
+     *  callback once page 0 has rendered, so the first card actually exists.
+     *
+     *  Sticky re-assert: on the FIRST open of the session, Main.pushModal settles
+     *  stage focus ASYNCHRONOUSLY a tick or two after we return — it grabs focus to
+     *  the visor, then drops it to null AFTER our callback runs, clobbering the card
+     *  focus we just set (observed: focus transitions visor -> card -> null). A
+     *  single set therefore loses the race. So we connect a one-shot guard to the
+     *  stage's key-focus: if the modal pulls focus to null/the visor while a card
+     *  open is intended and no card yet holds focus, re-assert. It disconnects as
+     *  soon as focus lands where intended (a card, or the search box) or after a
+     *  small bound, so it can never loop — and it is torn down on hide regardless. */
+    _focusInitialTarget() {
+        if (!this._visorVisible) return;
+        this._teardownFocusGuard();
+        const wantCard = (this._shelf?.cardCount() ?? 0) > 0;
+        if (!wantCard) { this._focusSearch(); return; }
+        this._shelf?.focusFirstCard();
+        // Watch for the modal's late focus-settle stealing our card focus, and
+        // re-assert a bounded number of times. The search-box fallback doesn't need
+        // this (an St.Entry's ClutterText keeps the modal's focus), so only guard
+        // the card case.
+        let attempts = 0;
+        this._focusGuardId = global.stage.connect('notify::key-focus', () => {
+            if (!this._visorVisible) { this._teardownFocusGuard(); return; }
+            const focus = global.stage.get_key_focus();
+            // Landed on a card (ours or one the user navigated to) → done.
+            if (this._shelf?.hasFocusedCard()) { this._teardownFocusGuard(); return; }
+            // Focus moved to the search box (user typed/Up, per 023) → leave it.
+            if (focus === this._searchEntry?.get_clutter_text()) { this._teardownFocusGuard(); return; }
+            // Else the modal pulled focus to null/the visor — re-assert, bounded.
+            if (++attempts > 5) { this._teardownFocusGuard(); return; }
+            this._shelf?.focusFirstCard();
+        });
+    }
+
+    _teardownFocusGuard() {
+        if (this._focusGuardId) {
+            global.stage.disconnect(this._focusGuardId);
+            this._focusGuardId = null;
+        }
+    }
+
     _positionVisor() {
         const m = Main.layoutManager.primaryMonitor;
         const h = this._settings.get_int('visor-height');
@@ -409,23 +462,25 @@ export default class StrataUIExtension extends Extension {
         this._visorVisible = true;
         // Instant — no animation (ADR-0004). Grab keyboard so Escape works.
         this._grab = Main.pushModal(this._visor, {actionMode: Shell.ActionMode.NORMAL});
-        this._shelf?.load();   // pull current history (page 0) on every summon
-        // Search-first: each summon starts in browse with an empty, focused box.
-        // (load() already shows browse; clearing leftover text just resets the UI.)
+        // Each summon starts in browse with an empty box. (load() already shows
+        // browse; clearing leftover text just resets the UI.)
         this._searchEntry?.set_text('');
-        // Focus must be deferred one tick: set synchronously right after pushModal
-        // it doesn't stick (the modal grab settles focus after we return).
-        GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
-            if (this._visorVisible && this._searchEntry)
-                global.stage.set_key_focus(this._searchEntry.get_clutter_text());
-            return GLib.SOURCE_REMOVE;
-        });
+        // Card-first open (feature 025): land focus on the FIRST (most-recent) card
+        // with the whole-card highlight, so Left/Right work immediately and typing
+        // refines the search (routed by 023; Up returns to search per 023). The
+        // shelf renders the page asynchronously (idle_add batches, 002), so the
+        // first card doesn't exist yet here — we register a one-shot callback that
+        // the shelf fires AFTER page 0 renders, then focus the first card (or fall
+        // back to the search box when history/search is empty).
+        this._shelf?.onFirstPage(() => this._focusInitialTarget());
+        this._shelf?.load();   // pull current history (page 0) on every summon
         console.log('[Strata UI] visor shown');
     }
 
     _hideVisor() {
         if (!this._visorVisible)
             return;
+        this._teardownFocusGuard();  // drop the open-focus re-assert guard (025)
         this._shelf?.closePeek();   // never leave a Peek hanging behind a hidden visor
         if (this._grab) {
             Main.popModal(this._grab);
