@@ -215,10 +215,12 @@ Harness: https://www.anthropic.com/engineering/effective-harnesses-for-long-runn
   (ADR-0002). Daemon unchanged (ADR-0003).
 - NEXT ready: feature 001 "Empty visor" (no blockers).
 
-CAVEAT — passes flips are MANUAL: GNOME Shell extensions can't be verified
-headlessly. The loop implements + static-checks + commits a feature, but a human
-must test it in a live GNOME session (steps live in each feature's `steps`) before
-setting passes=true.
+CAVEAT (corrected 2026-06-27) — headless verification DID work out: verify.sh boots
+a nested GNOME Shell, drives the extension via Eval, asserts real runtime state, and
+screenshots; the loop auto-flips passes on a green verify. It does NOT cover
+everything, though — full visual polish, real keyboard/clipboard input, and the Adw
+prefs window (008; needs a display, so it was syntax-checked only) still want a human
+smoke-test in a live session per each feature's `steps`.
 ────────────────────────────────────────────────────────────────────────
 
 ────────────────────────────────────────────────────────────────────────
