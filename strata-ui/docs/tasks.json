@@ -460,6 +460,30 @@
         "v1-spec.md"
       ],
       "passes": true
+    },
+    {
+      "id": "019",
+      "title": "Image paste-back offers compatible formats",
+      "category": "bugfix",
+      "description": "Live, reproducible: pasting an IMAGE copied from Strata works in apps that accept image/png (Gmail, Warp) but FAILS in KGX / GNOME Console with 'g-io-error-quark (15): No compatible transfer format found'. Cause: shelf.js _writeClipboard writes binary/image items through Meta.SelectionSourceMemory.new(mime, bytes), which advertises exactly ONE mime type. Text works because St.Clipboard.set_text publishes several text formats; images offer only one, so a consumer that negotiates for a different format (e.g. image/bmp) gets nothing. The intended UI-only fix was to route the binary/image paste-back path through the daemon's existing SetClipboard(id), which uses wl-clipboard-rs copy_multi to publish multiple formats — calling an existing daemon API, no Rust change (ADR-0003). BLOCKED — verified empirically NOT possible from this stack: (1) SetClipboard(id) on GNOME/Mutter returns 'org.freedesktop.DBus.Error.Failed: A required Wayland protocol (ext-data-control, or wlr-data-control version 1) is not supported by the compositor' and leaves the Mutter clipboard untouched (a pre-set sentinel survives), because wl-clipboard-rs needs the data-control protocol that Mutter exposes to neither monitor nor write (the daemon itself logs 'Wayland clipboard monitor unavailable, using GJS Meta.Selection path (expected on GNOME)'); (2) even if it could own the clipboard, strata-daemon/src/clipboard/writer.rs offers NON-text (image) blobs a single mime in its else-branch — so SetClipboard would NOT deliver multi-format for images without a Rust change anyway; (3) there is no UI-only multi-mime alternative on Mutter — GJS cannot subclass Meta.SelectionSource (vfunc_read_async 'accepts another callback as a parameter. This is not supported') and Meta.SelectionSourceMemory is single-mime by construction. The only real fix (teach the daemon's write path to offer multiple image formats AND/or a Mutter-native multi-format selection owner) crosses ADR-0003 (daemon change) and is deferred to v2. Keep passes:false; do not fake green; do not add a permanently-RED case 019) that would break verify.sh all for the suite.",
+      "steps": [
+        "Reproduce: copy an image from the Strata shelf, paste into KGX/GNOME Console — fails with 'No compatible transfer format found'; the same paste into Gmail/Warp (image/png consumers) succeeds. Root cause is the single-mime Meta.SelectionSourceMemory write in shelf.js _writeClipboard.",
+        "Intended UI-only approach (calling an existing daemon API, not editing Rust): route binary/image paste-back through proxy.SetClipboard(id) (multi-format via wl-clipboard-rs copy_multi) instead of single-mime Meta.SelectionSourceMemory.",
+        "FIRST, verify SetClipboard actually works on the nested GNOME 50 / Mutter: seed a REAL image via StrataCorpus (test-harness/corpus/loader.js seedViaSubmit), call SetClipboard(id) for the stored image, then read the CLIPBOARD selection back the way a paste does and assert the image bytes are retrievable — RED on the current single-mime write, GREEN after the fix.",
+        "RESULT (empirical, this stack): SetClipboard fails with the data-control protocol error and writes nothing; there is no UI-only multi-mime selection owner available on Mutter. The fix crosses ADR-0003 (daemon change), so this slice stays passes:false and ships no impl. No case 019) is added to verify.sh because a permanently-failing case would break `verify.sh all` (slice 015) for every other slice."
+      ],
+      "blockedBy": [
+        "005",
+        "016"
+      ],
+      "refs": [
+        "reference/strata-daemon-dbus-contract.md (SetClipboard)",
+        "strata-daemon/src/clipboard/writer.rs (single-mime image else-branch)",
+        "strata-daemon/src/clipboard/monitor.rs (Mutter exposes no data-control)",
+        "extension/ui/shelf.js (_writeClipboard)",
+        "ADR-0003"
+      ],
+      "passes": false
     }
   ]
 }
