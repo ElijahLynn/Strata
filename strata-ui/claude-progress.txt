@@ -5,6 +5,52 @@ Entries are headed with a UTC ISO-8601 timestamp (YYYY-MM-DDThh:mm:ssZ, from
 Harness: https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents
 
 ────────────────────────────────────────────────────────────────────────
+2026-06-27T22:58:12Z — 022: Copy image also offers a file:// path for text targets — BLOCKED (same Mutter/GJS multi-mime wall as 019)
+
+WHAT WAS ASKED. When an image is pasted back, ALSO put a text file:// path (to a
+temp file holding the image bytes) on the clipboard ALONGSIDE the image bytes, so a
+VTE/text terminal (GNOME Console, Claude Code) — which cannot accept an image on
+paste from ANY source — gets the path, while image-accepting apps still get the
+bytes. That requires ONE clipboard owner advertising image/png AND text/uri-list
+AND text/plain simultaneously.
+
+WHY BLOCKED (empirical, GNOME Shell 50.1 / Mutter 18 / GJS 1.88, in the nested
+harness). A GJS extension can own the Mutter selection only via:
+  (1) Meta.SelectionSourceMemory.new(mimetype, content) — SINGLE mime by
+      construction (its only ctor takes one mimetype + one GLib.Bytes); or
+  (2) St.Clipboard.set_text(type,text) / set_content(type,mimetype,bytes) — single
+      text-family / single mimetype.
+Both REPLACE the selection owner — they clobber, never merge. Verified directly:
+set an image/png owner, then a text owner, then read back → text reads the path but
+the image read returns null and get_mimetypes() is just 'text/plain;charset=utf-8'
+(the prior image owner is gone). Reverse order → image reads, text is null. There is
+no St/Meta call that publishes several mimes at once.
+The ONLY class that can serve multiple mimes from one owner is a custom
+Meta.SelectionSource subclass — but GJS CANNOT register one: overriding
+vfunc_read_async throws at registerClass time, 'VFunc read_async accepts another
+callback as a parameter. This is not supported', and the base read_async serves no
+bytes. (Identical wall to slice 019.)
+The temp-file write itself is trivially UI-only, but with no multi-mime owner the
+path cannot be offered ALONGSIDE the image bytes. Serving a path-only owner would
+DROP the image/png bytes that real image-paste targets (Gmail/Warp, confirmed
+working in 019) negotiate for — a regression — and weakening the slice to path-only
+is not allowed. The daemon's SetClipboard(id) (wl-clipboard-rs copy_multi) is dead
+on Mutter (no ext-/wlr-data-control — same failure 019 documented) and is single-
+mime for images in writer.rs anyway, so even that route needs a Rust change.
+
+DECISION. Real fix is daemon-side (a Mutter-native multi-format selection owner, or
+teach the write path) → crosses ADR-0003 (UI-only) → deferred to v2. tasks.json 022
+stays passes:false with the empirical block recorded in description+steps. NO impl
+shipped. NO 022) case added to verify.sh — a permanently-RED case would break
+`verify.sh all` (slice 015) for every other slice; 019 set the same precedent.
+
+VERIFY. `verify.sh all` → ALL GREEN (001-021; 015/019/022 intentionally have no
+case). Investigation probes (sequential St.Clipboard clobber test; image-then-text
+merge test; Meta.SelectionSource subclass registerClass failure; real corpus PNG
+paste-back read-back as both text and image client) were run in the nested shell and
+are summarized above; they are throwaway and not committed.
+
+────────────────────────────────────────────────────────────────────────
 2026-06-27T22:54:08Z — 023: type-on-card routes to search; Up returns to search (TDD red→green→teeth)
 The live gap: with a card highlighted (keyboard focus) a Card is an St.Button, so a printable
 keystroke was simply LOST and Up did nothing — a user couldn't refine the search after arrowing in.
