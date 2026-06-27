@@ -5,6 +5,27 @@ Entries are headed with a UTC ISO-8601 timestamp (YYYY-MM-DDThh:mm:ssZ, from
 Harness: https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents
 
 ────────────────────────────────────────────────────────────────────────
+2026-06-27T22:29:51Z — Merged parallel slices 017/018/020/021 (fixes) + 019 (BLOCKED) onto strata-ui
+Built in parallel worktrees, cherry-picked onto strata-ui (011 already in). verify.sh all ->
+ALL GREEN (001-021). Per-slice root causes (condensed; the cherry-pick took --ours on this log):
+- 017 search placeholder contrast (commit 0e65395): the hint was never styled -> fell to GNOME 50
+  default rgba(255,255,255,0.7), near-white in every skin. Per-theme readable colours, WCAG-checked.
+- 018 crisp thumbnails (c90a155): applyThumbnail used background-size: cover (upscaled the 200px
+  thumb to the 300px card). Now contain. Ceiling: sharp+filling needs bigger daemon thumbnails (v2).
+- 020 Delete key (8b4020b): Delete on a focused card deletes via DeleteItemAsync + advances focus;
+  Delete in the search box still edits text (bubble phase).
+- 021 gear re-click refocuses prefs (f260bd5): GNOME 50 OpenExtensionPrefsAsync THROWS "Already
+  showing a prefs dialog", so openPreferences no-ops; fix looks up + Main.activateWindow's the
+  existing window. Live-smoke-gated (cross-process window not observable headlessly).
+- 019 image multi-format paste-back (815dd14): BLOCKED. daemon SetClipboard fails on Mutter
+  (ext/wlr-data-control unsupported; nothing written) and writer.rs is single-mime for images ->
+  real fix needs a daemon change (ADR-0003) -> v2. No impl / no verify case (would be permanently RED).
+MERGE ARTIFACT FIXED: cherry-picking the additive verify.sh case blocks, git folded each trailing
+`;;` as common, so stripping the conflict markers dropped the `;;` of cases 017/018/020, breaking
+case syntax (every single-case run failed; `all` masked it). Re-added the 3 terminators -> GREEN.
+Tasked, not built: 022 (file-path-for-images), 023 (type-on-card routes to search).
+
+────────────────────────────────────────────────────────────────────────
 2026-06-27T22:12:21Z — 021: Gear re-click refocuses an already-open prefs window (TDD red→green, LIVE-SMOKE-gated)
 
 WHY. Live bug: with the Strata UI prefs window ALREADY open but not focused (sitting

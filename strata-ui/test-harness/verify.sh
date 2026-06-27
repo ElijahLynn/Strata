@@ -1007,6 +1007,7 @@ case "$ID" in
     chk "$([ "$hr" = "$NEARWHITE_R" ] && [ "$hg" = "$NEARWHITE_G" ] && [ "$hb" = "$NEARWHITE_B" ] && echo near-white || echo distinct)" "distinct" "light: hint is NOT the old near-white rgb(255,255,255) value"
     lctr="$(contrast "$hr" "$hg" "$hb" "$bbr" "$bbg" "$bbb")"
     chk "$(awk -v c="$lctr" 'BEGIN{print (c>=4.5)?"ok":"low"}')" "ok" "light: hint contrast vs band is adequate ($lctr:1 >= 4.5)"
+    ;;
   018)
     LU="Main.extensionManager.lookup('$UUID').stateObj"
     # --- the live bug: image cards look very blurry / low-res. applyThumbnail() drops
@@ -1036,6 +1037,7 @@ case "$ID" in
     chk "$(evnum "(function(){var c=$LU._shelf._cards.get('t0'); return (((c._thumbContainer.style)||'').indexOf('background-image')>=0)?1:0;})()")" "1" "visible image card loaded a thumbnail (background-image applied)"
     chk "$(evnum "(function(){var s=(($LU._shelf._cards.get('t0')._thumbContainer.style)||'').replace(/ /g,''); return (s.indexOf('background-size:contain')>=0)?1:0;})()")" "1" "the APPLIED thumbnail style uses background-size: contain (crisp, no upscale)"
     chk "$(evnum "(function(){var s=(($LU._shelf._cards.get('t0')._thumbContainer.style)||'').replace(/ /g,''); return (s.indexOf('background-size:cover')>=0)?1:0;})()")" "0" "the APPLIED thumbnail style does NOT use background-size: cover (no blurry upscaling)"
+    ;;
   020)
     LU="Main.extensionManager.lookup('$UUID').stateObj"
     # --- the live bug: with a card highlighted (keyboard focus), pressing Delete
@@ -1094,6 +1096,7 @@ case "$ID" in
     chk "$(focuseq "$LU._searchEntry.get_clutter_text()")" "1" "(setup) the search box holds key focus"
     nested_key Delete; sleep 0.4
     chk "$(evnum "(function(){return globalThis._del.length;})()")" "0" "Delete with focus in the search box issues NO DeleteItem"
+    ;;
   021)
     LU="Main.extensionManager.lookup('$UUID').stateObj"
     # --- the live bug: when the Strata UI prefs window is ALREADY open but not
