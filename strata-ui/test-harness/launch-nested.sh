@@ -72,10 +72,19 @@ nested_up() {
       --method org.freedesktop.DBus.NameHasOwner org.gnome.Shell.Screenshot 2>/dev/null | grep -q true && break
     sleep 0.3
   done
-  for i in $(seq 1 40); do
-    nested_eval "global.context.unsafe_mode" 2>/dev/null | grep -q "true" && break
+  # Belt-and-suspenders: explicitly enable the helper in case enabled-extensions
+  # didn't take, then wait (longer) until unsafe mode is actually on. Eval is itself
+  # gated by unsafe mode, so "Eval returns true" is the signal that the helper ran.
+  nested_enable_ext "$HELPER_UUID"
+  local unsafe=0
+  for i in $(seq 1 100); do
+    nested_eval "global.context.unsafe_mode" 2>/dev/null | grep -q "true" && { unsafe=1; break; }
     sleep 0.3
   done
+  if [ "$unsafe" != 1 ]; then
+    echo "launch-nested: WARNING unsafe_mode not confirmed; screenshots/eval will fail" >&2
+    return 1
+  fi
   echo "launch-nested: up (pid=$NESTED_PID, $res)" >&2
 }
 
