@@ -281,26 +281,69 @@ export default class StrataUIExtension extends Extension {
         this._band.y_align = edge === 'top' ? Clutter.ActorAlign.START : Clutter.ActorAlign.END;
     }
 
-    /** Gear handler: drop the modal grab, then open our prefs in-UI (req #5).
+    /** Gear handler: drop the modal grab, then open OR raise our prefs in-UI (req #5).
      *  Hide FIRST so opening prefs never depends on our keyboard grab still being
-     *  up, and wrap openPreferences() so a failure is logged loudly instead of
-     *  looking like "the gear just closed the visor" (feature 013). */
+     *  up, and wrap the open/raise so a failure is logged loudly instead of looking
+     *  like "the gear just closed the visor" (feature 013).
+     *
+     *  Re-click refocus (feature 021): when the prefs window is ALREADY open but not
+     *  focused, GNOME 50's prefs service (dbusServices/extensions/extensionsService.js)
+     *  throws 'Already showing a prefs dialog' and openPreferences() is a no-op — so a
+     *  second gear click appeared to do nothing. The prefs window lives in a separate
+     *  gjs process (org.gnome.Shell.Extensions) we cannot present() directly, but the
+     *  Shell CAN find it among Mutter's windows and raise+focus it. So: if a prefs
+     *  window already exists, activate it; otherwise open a fresh one. */
     _onGearClicked() {
         // Log so we can confirm the click reaches this handler at all (vs being eaten
-        // upstream). Then defer openPreferences() one idle tick: _hideVisor() pops the
-        // visor's modal grab, and calling openPreferences() mid-grab-teardown silently
-        // no-ops on GNOME 50 (no throw, no window). Opening after the grab is released
-        // lets the prefs window actually appear.
+        // upstream). Then defer the open/raise one idle tick: _hideVisor() pops the
+        // visor's modal grab, and acting mid-grab-teardown silently no-ops on GNOME 50
+        // (no throw, no window). Acting after the grab is released lets it take effect.
         console.log('[Strata UI] gear clicked → opening preferences');
         this._hideVisor();
         GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
             try {
-                this.openPreferences();
+                const existing = this._findPrefsWindow();
+                if (existing) {
+                    // Already open (possibly behind another window / unfocused): raise
+                    // and refocus it instead of no-opping.
+                    this._presentPrefsWindow(existing);
+                } else {
+                    this.openPreferences();
+                }
             } catch (e) {
                 console.error('[Strata UI] failed to open preferences:', e);
             }
             return GLib.SOURCE_REMOVE;
         });
+    }
+
+    /** Raise + refocus an already-open prefs window. Main.activateWindow raises it,
+     *  gives it keyboard focus, and switches to its workspace. Kept as its own seam so
+     *  the verify harness can spy the raise without reassigning Main's read-only ESM
+     *  export (feature 021). */
+    _presentPrefsWindow(win) {
+        Main.activateWindow(win, global.get_current_time());
+    }
+
+    /** Find an already-open preferences window for THIS extension among Mutter's
+     *  windows, or null. The window is created by the extensions D-Bus service
+     *  (org.gnome.Shell.Extensions, a separate gjs process) with its title set to the
+     *  extension's display name (extensionPrefsDialog.js: title = extension.metadata.name).
+     *  Match on the gtk-application-id (the prefs service's app id) when present, and
+     *  fall back to the title == our display name — robust across GNOME 48/49/50. */
+    _findPrefsWindow() {
+        const myName = this.metadata?.name;
+        for (const actor of global.get_window_actors()) {
+            const win = actor.meta_window;
+            if (!win)
+                continue;
+            const appId = win.get_gtk_application_id?.();
+            if (appId === 'org.gnome.Shell.Extensions')
+                return win;
+            if (myName && win.get_title?.() === myName)
+                return win;
+        }
+        return null;
     }
 
     _toggleVisor() {

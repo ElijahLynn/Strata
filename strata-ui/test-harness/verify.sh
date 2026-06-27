@@ -1094,6 +1094,72 @@ case "$ID" in
     chk "$(focuseq "$LU._searchEntry.get_clutter_text()")" "1" "(setup) the search box holds key focus"
     nested_key Delete; sleep 0.4
     chk "$(evnum "(function(){return globalThis._del.length;})()")" "0" "Delete with focus in the search box issues NO DeleteItem"
+  021)
+    LU="Main.extensionManager.lookup('$UUID').stateObj"
+    # --- the live bug: when the Strata UI prefs window is ALREADY open but not
+    #     focused (behind another window), clicking the gear again appears to do
+    #     nothing. Root cause is in GNOME Shell's OWN extensions D-Bus service
+    #     (dbusServices/extensions/extensionsService.js, GNOME 50): OpenExtensionPrefs
+    #     throws 'Already showing a prefs dialog' when this._prefsDialog exists, so a
+    #     second openPreferences() is rejected and the existing window is never raised.
+    #     The prefs window lives in a SEPARATE gjs process, so the extension cannot
+    #     present() it directly -- but the Shell side CAN find that window among
+    #     Mutter's windows (by the extension display name / gtk-application-id) and
+    #     Main.activateWindow() it. The fix adds that raise path to _onGearClicked.
+    #
+    #     HEADLESS LIMIT (honest): the REAL prefs window cannot be created or observed
+    #     from the throwaway nested shell -- it lives in org.gnome.Shell.Extensions, a
+    #     different process (the 013 agent proved this). So this case CANNOT assert the
+    #     real cross-process raise. What it legitimately CAN assert is MY logic: the
+    #     branch and the activate call. It stubs the window-lookup seam to inject a
+    #     FAKE existing window, spies Main.activateWindow, and proves the gear RAISES
+    #     that window (and does NOT open a second dialog); and with NO existing window
+    #     it proves the gear opens exactly one fresh prefs window. The end-to-end real
+    #     refocus is LIVE-SMOKE-gated (see claude-progress.txt / tasks.json 021). ---
+
+    # --- static: _onGearClicked must have a raise/present path (Main.activateWindow +
+    #     a window-lookup helper matching by name/gtk-application-id), AND keep the
+    #     openPreferences fallback + the '[Strata UI] gear clicked' log. ---
+    gear="$(awk '/_onGearClicked\(\) \{/{f=1} f{print} f&&/^    \}/{exit}' "$EXT/extension.js")"
+    chk "$(printf '%s' "$gear" | grep -qs 'gear clicked'        && echo y || echo n)" "y" "_onGearClicked keeps the '[Strata UI] gear clicked' log"
+    chk "$(printf '%s' "$gear" | grep -qs 'openPreferences'     && echo y || echo n)" "y" "_onGearClicked still calls openPreferences() (fresh-open fallback)"
+    chk "$(printf '%s' "$gear" | grep -qsE '_findPrefsWindow'   && echo y || echo n)" "y" "_onGearClicked looks up an existing prefs window before opening"
+    chk "$(printf '%s' "$gear" | grep -qsE '_presentPrefsWindow' && echo y || echo n)" "y" "_onGearClicked raises the existing window (_presentPrefsWindow) when one is found"
+    chk "$(grep -qs 'Main.activateWindow' "$EXT/extension.js" && echo y || echo n)" "y" "the raise path uses Main.activateWindow (raise+focus+workspace)"
+    # a window-lookup helper exists and matches the prefs window by name / gtk-application-id
+    chk "$(grep -qs '_findPrefsWindow' "$EXT/extension.js" && echo y || echo n)" "y" "a _findPrefsWindow() helper locates the open prefs window"
+    chk "$(grep -qsE 'get_gtk_application_id|get_title|metadata\.name|this\.metadata' "$EXT/extension.js" && echo y || echo n)" "y" "_findPrefsWindow matches by the extension display name / gtk-application-id"
+
+    # --- runtime: spy openPreferences + the _presentPrefsWindow raise seam, and stub
+    #     the window-lookup seam so the branch is deterministic without the real
+    #     cross-process window. (Main.activateWindow is a read-only ESM export and
+    #     cannot be reassigned from Eval; _presentPrefsWindow is the spyable seam that
+    #     wraps it -- the static check above proves it really calls Main.activateWindow.)
+    nested_eval "(function(){
+      var e=$LU;
+      globalThis._po=0;  e.openPreferences   =function(){ globalThis._po++; };
+      globalThis._act=[]; e._presentPrefsWindow=function(w){ globalThis._act.push(w); };
+      globalThis._fakeWin=null;   // null => no existing window
+      e._findPrefsWindow =function(){ return globalThis._fakeWin; };
+      return 1;
+    })()" >/dev/null 2>&1
+
+    # CASE A: no existing window -> gear opens exactly one fresh prefs window (open path)
+    nested_eval "(function(){ globalThis._po=0; globalThis._act=[]; globalThis._fakeWin=null; $LU._onGearClicked(); return 1; })()" >/dev/null 2>&1
+    sleep 0.3
+    chk "$(evnum "globalThis._po")"  "1" "no existing window: gear opens exactly one fresh prefs window (openPreferences once)"
+    chk "$(evnum "globalThis._act.length")" "0" "no existing window: nothing is raised (no window to refocus)"
+
+    # CASE B: an existing (unfocused) window -> gear RAISES it, does NOT open a second
+    nested_eval "(function(){
+      globalThis._po=0; globalThis._act=[];
+      globalThis._fakeWin={ id:'PREFSWIN', get_title:function(){return 'Strata UI';} };
+      $LU._onGearClicked(); return 1;
+    })()" >/dev/null 2>&1
+    sleep 0.3
+    chk "$(evnum "globalThis._act.length")" "1" "existing window: gear raises+refocuses exactly one window"
+    chk "$(evnum "(function(){return (globalThis._act[0] && globalThis._act[0].id==='PREFSWIN')?1:0;})()")" "1" "existing window: the RAISED window is the open prefs window"
+    chk "$(evnum "globalThis._po")"  "0" "existing window: NO second prefs dialog is opened (the bug: it would no-op; the fix: it raises)"
     ;;
 
   *) echo "  note: no feature-specific checks for $ID (generic only)";;

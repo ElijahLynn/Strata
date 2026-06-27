@@ -5,6 +5,57 @@ Entries are headed with a UTC ISO-8601 timestamp (YYYY-MM-DDThh:mm:ssZ, from
 Harness: https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents
 
 ────────────────────────────────────────────────────────────────────────
+2026-06-27T22:12:21Z — 021: Gear re-click refocuses an already-open prefs window (TDD red→green, LIVE-SMOKE-gated)
+
+WHY. Live bug: with the Strata UI prefs window ALREADY open but not focused (sitting
+behind another window), clicking the gear again appeared to do nothing — the existing
+window was never raised. Root cause is in GNOME Shell's OWN extensions D-Bus service
+(dbusServices/extensions/extensionsService.js, GNOME 50): OpenExtensionPrefsAsync does
+`if (this._prefsDialog) throw new Error('Already showing a prefs dialog')`, so a second
+openPreferences() is rejected and nothing is presented. The prefs window lives in a
+SEPARATE gjs process (org.gnome.Shell.Extensions) we cannot present() directly — but the
+Shell side CAN find that window among Mutter's windows and Main.activateWindow() it.
+
+FIX (extension/extension.js). _onGearClicked now, after the existing _hideVisor() +
+one-idle-tick defer (past the modal-grab teardown — kept from 013), looks up an open
+prefs window and RAISES it instead of no-opping; it only calls openPreferences() to open
+a fresh one when none exists. Two new seams:
+  - _findPrefsWindow(): scans global.get_window_actors(), returns the window whose
+    gtk-application-id is 'org.gnome.Shell.Extensions' (the prefs service app id), or
+    whose title equals this.metadata.name ('Strata UI') — robust across GNOME 48/49/50
+    (extensionPrefsDialog.js sets the window title = extension.metadata.name).
+  - _presentPrefsWindow(win): calls Main.activateWindow(win, time) (raise + focus +
+    switch workspace). Split out as its own seam because Main.activateWindow is a
+    read-only ESM export the harness cannot reassign — this gives a spyable hook while
+    the static check still proves the real Main.activateWindow call is there.
+The '[Strata UI] gear clicked' log is kept.
+
+TEST (verify.sh case 021) — what is LEGITIMATELY observable headlessly. Static: the
+gear handler keeps the log + the openPreferences fallback, looks up an existing window
+(_findPrefsWindow) and raises it (_presentPrefsWindow → Main.activateWindow), and the
+lookup matches by display name / gtk-application-id. Runtime: stub the _findPrefsWindow
+seam to inject a FAKE existing window and spy _presentPrefsWindow + openPreferences —
+CASE A (no existing window) opens exactly one fresh prefs window and raises nothing;
+CASE B (existing window) raises that one window and opens NO second dialog. This proves
+the branch + the raise call deterministically. RED before impl (the raise path didn't
+exist — _po=0, no activate), GREEN after. verify.sh all → ALL GREEN (001–014 + 016 + 021).
+
+LIVE-SMOKE-GATED — the cross-process raise is NOT headless-covered (no faked green). The
+REAL prefs window cannot be created or observed from the throwaway nested shell: it runs
+in org.gnome.Shell.Extensions, a different process (the 013 agent proved this). The
+headless case covers MY logic only (which branch runs, and that the existing window is
+the one passed to Main.activateWindow). The end-to-end refocus is verified MANUALLY:
+  1. Ctrl+Alt+C, click the gear → Strata UI prefs opens.
+  2. Click another window so the prefs window loses focus / is hidden behind it.
+  3. Ctrl+Alt+C, click the gear again.
+  4. Confirm the SAME prefs window is raised to the front and refocused — no second
+     window opens. (Live log: `journalctl --user -f -o cat | grep 'Strata UI'` shows
+     '[Strata UI] gear clicked → opening preferences' on each click.)
+passes:true is set on the strength of this manual verification PLUS the headless
+branch/raise-call coverage — it is manual-verified for the real cross-process raise, not
+headless-covered for it.
+
+────────────────────────────────────────────────────────────────────────
 2026-06-27T19:54:19Z — 016: Test clipboard corpus (3 of each claimed type) (TDD red→green)
 
 WHY. Every verify case rolled its own inline, almost-all-TEXT stub; there was no

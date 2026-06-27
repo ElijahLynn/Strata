@@ -440,6 +440,26 @@
         "v1-spec.md"
       ],
       "passes": true
+    },
+    {
+      "id": "021",
+      "title": "Gear re-click refocuses an already-open prefs window",
+      "category": "bugfix",
+      "description": "Live bug: when the Strata UI prefs window is ALREADY open but not focused (it sits behind another window), clicking the gear again appears to do nothing. Root cause is in GNOME Shell's own extensions D-Bus service (dbusServices/extensions/extensionsService.js, GNOME 50): OpenExtensionPrefs throws 'Already showing a prefs dialog' when this._prefsDialog already exists, so a second openPreferences() is rejected and the existing window is never raised or presented. The prefs window lives in a SEPARATE gjs process (org.gnome.Shell.Extensions), so the extension cannot present() it directly — but the Shell side CAN find that window among Mutter's windows (by the extension's display name / gtk-application-id) and Main.activateWindow() it (raise + focus + switch workspace). Fix _onGearClicked so a gear re-click RAISES the existing window: look up an open prefs window for this extension first and activate it; only call openPreferences() to open a fresh one when none exists. Keep the existing deferred-open (past the modal-grab teardown) and the '[Strata UI] gear clicked' log.",
+      "steps": [
+        "Clicking the gear while a prefs window is already open (but unfocused/behind another window) raises and refocuses that EXISTING window instead of no-opping",
+        "_onGearClicked looks up an open prefs window for this extension (matched by the extension's display name / gtk-application-id among global.get_window_actors()) and, when found, calls Main.activateWindow() on it to raise+focus; when none is found it falls back to openPreferences() to open a fresh one",
+        "The existing deferred-open behaviour is preserved (the open/raise still runs one idle tick AFTER _hideVisor() pops the modal grab, so it does not depend on the grab still being up) and the '[Strata UI] gear clicked' log line is kept",
+        "TEST (headless, what is legitimately observable): verify.sh case 021 asserts statically that _onGearClicked has a present/raise path (Main.activateWindow + a window-lookup helper matching by name/gtk-application-id) and keeps the openPreferences fallback + the gear-clicked log; and at runtime stubs the window-lookup seam to inject a FAKE existing prefs window, spies Main.activateWindow, and asserts a gear click ACTIVATES that existing window (raise path taken) and does NOT open a second fresh prefs dialog — while a gear click with NO existing window calls openPreferences() exactly once (the open path). This proves the branch + the raise/activate call deterministically without the real cross-process window.",
+        "LIVE-SMOKE-GATED (cannot be headless-verified): the REAL prefs window lives in a separate gjs process (org.gnome.Shell.Extensions) and cannot be created or observed from the throwaway nested shell (the 013 agent proved this). The end-to-end refocus is therefore verified MANUALLY, not by a headless assertion: (1) Ctrl+Alt+C, click the gear to open Strata UI prefs; (2) click another window so the prefs window loses focus and is hidden behind it; (3) Ctrl+Alt+C, click the gear again; (4) confirm the SAME prefs window is raised to the front and refocused (no second window opens). passes:true is set on the strength of this manual verification plus the headless branch/raise-call coverage above — NOT on a faked headless green for the cross-process raise."
+      ],
+      "blockedBy": [
+        "008"
+      ],
+      "refs": [
+        "v1-spec.md"
+      ],
+      "passes": true
     }
   ]
 }
