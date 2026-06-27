@@ -338,6 +338,27 @@
         "test-harness/verify.sh"
       ],
       "passes": true
+    },
+    {
+      "id": "022",
+      "title": "Copy image also offers a file path (paste into text apps)",
+      "category": "functional",
+      "description": "When an image is copied, Strata ALSO writes a text file:// path to a temp file holding the image, alongside the image bytes. A VTE/text terminal (GNOME Console, and Claude Code in it) cannot accept an image on paste from ANY clipboard source (confirmed: even GNOMEs native screenshot clipboard fails into KGX), so a file path is the only way to get an image into a text target. Image-accepting apps still take the bytes. Decided: always offer the path, not behind a setting. DO NOT BUILD until directed.",
+      "steps": [
+        "On image paste-back, save the image to a temp file (e.g. ~/.cache/strata/paste/<id>.<ext>) and offer BOTH the image bytes AND its file:// path as text (text/uri-list + text/plain)",
+        "Pasting an image into a text terminal yields the file path; into an image app yields the image",
+        "TEST: activate an image corpus item; read the clipboard as a text client and assert the file:// path; as an image client and assert the bytes; teeth-proven",
+        "Clean up temp files (unlink on next copy / on disable)"
+      ],
+      "blockedBy": [
+        "005",
+        "016"
+      ],
+      "refs": [
+        "reference/strata-daemon-dbus-contract.md",
+        "ADR-0005"
+      ],
+      "passes": false
     }
   ]
 }
