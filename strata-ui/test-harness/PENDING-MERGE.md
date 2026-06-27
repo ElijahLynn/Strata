@@ -7,7 +7,7 @@
 - 018 crisp thumbnails (contain) — commit aa07d164 — branch worktree-agent-add0b681b3047cd98 — DONE
 - 019 image multi-format paste-back — agent a5b8003960e23166b — RUNNING (may report BLOCKED: only fixable via daemon SetClipboard if it works on Mutter; else crosses ADR-0003)
 - 020 Delete key removes focused item — commit d6122d22 — branch worktree-agent-a7d18b96c3623fd43 — DONE
-- 021 gear re-click refocuses open prefs — agent a8a76ddc79ca34374 — RUNNING (likely live-smoke-gated; prefs window not observable headlessly)
+- 021 gear re-click refocuses open prefs — commit 9dab520c — branch worktree-agent-a8a76ddc79ca34374 — DONE (live-smoke-gated for cross-process refocus)
 
 ## Merge procedure (post-compaction)
 1. For each finished worktree branch: `git cherry-pick <commit>` onto strata-ui. Resolve conflicts:
