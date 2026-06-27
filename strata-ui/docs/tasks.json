@@ -190,6 +190,130 @@
         "reference/architecture-constraints.md"
       ],
       "passes": true
+    },
+    {
+      "id": "010",
+      "title": "Capture clipboard from other apps",
+      "category": "functional",
+      "description": "Copies made in other apps reach Strata. On GNOME the daemon's data-control monitor cannot bind (Mutter exposes neither ext- nor wlr-data-control, see strata-daemon/src/clipboard/monitor.rs), so the extension is the capture agent: it watches the Meta selection and forwards each new payload to the daemon via SubmitItem. Missed in v1 (only daemon supervision, proxy, focus tracking, and signals were lifted from strata@edu4rdshl.dev) so history only grew while the original extension was also enabled. Port _connectClipboardMonitor / _readClipboard / _pickMime + SubmitItem from strata@edu4rdshl.dev/extension.js.",
+      "steps": [
+        "Copying text/image/uri-list in another app stores it: a Meta selection owner-changed read picks the best MIME (allowlist mirroring the daemon pick_mime / the original extension) and calls SubmitItem(mime, ay) with the raw bytes, off the main thread (transfer_async into a MemoryOutputStream, no synchronous base64)",
+        "Rapid clipboard writes are debounced (~50ms) and only one transfer_async is in flight at a time; payloads over the size cap (max-text-mb / max-image-mb) and x-kde-passwordManagerHint secrets are skipped",
+        "Size caps are pushed to the daemon via SetConfig on enable and when the keys change, so the History prefs take effect",
+        "TEST FIRST: verify.sh case 010 stubs _proxy.SubmitItemRemote to record (mime, bytes); drives the nested session clipboard (St.Clipboard.set_text for text, a SelectionSourceMemory owner for an image); asserts SubmitItem fires once per copy with the right mime and decoded bytes, that an over-cap payload and a passwordManagerHint offer are dropped, and statically that owner-changed + transfer_async + SubmitItem exist in extension.js. RED before impl (no capture today), GREEN after; 002 + 009 re-verified",
+        "Manual live smoke: with only strata-ui enabled, copy text in another app and confirm a new card appears"
+      ],
+      "blockedBy": [
+        "002",
+        "009"
+      ],
+      "refs": [
+        "reference/strata-daemon-dbus-contract.md",
+        "reference/architecture-constraints.md",
+        "ADR-0001",
+        "../AGENTS.md (ingest note)",
+        "strata@edu4rdshl.dev/extension.js (_connectClipboardMonitor/_readClipboard/_pickMime)"
+      ],
+      "passes": false
+    },
+    {
+      "id": "011",
+      "title": "Keyboard navigation across the shelf (Left/Right)",
+      "category": "bugfix",
+      "description": "Left/Right move the selection across the horizontal shelf. Live bug: the search entry's ClutterText consumes the arrow keys for its text cursor, so navigation never reaches the shelf and focus stays stuck in search. Fix: intercept Left/Right in the captured-event (capture) phase, like Space/Peek already is. Right enters the shelf from the search box; Left steps back off the first card to the search box. Trade: arrows navigate cards instead of moving the search cursor, which is expected for a launcher (Home/End/Backspace still edit the query).",
+      "steps": [
+        "With the visor open and focus in the search box, Right moves key focus to the first card and Right again to the next; the target is scrolled into view",
+        "Left walks back through the cards and, stepping off the first card, returns focus to the search box (moveFocus returns a boolean the capture handler uses to hand focus back)",
+        "Arrow handling lives in the captured-event phase so the search entry never swallows it; the dead bubble-phase Left/Right block is removed",
+        "TEST FIRST: verify.sh case 011 opens with browse cards, focuses the search clutter_text, sends a REAL Right keystroke (nested_key Right), asserts global.stage key focus is now the first card; Right -> second card; Left x2 -> back in the search box. RED before impl (today the keystroke stays in search), GREEN after; 004 + 005 + 006 re-verified"
+      ],
+      "blockedBy": [
+        "002",
+        "004",
+        "005"
+      ],
+      "refs": [
+        "v1-spec.md",
+        "ADR-0004"
+      ],
+      "passes": false
+    },
+    {
+      "id": "012",
+      "title": "Paste-back writes the chosen entry (end-to-end)",
+      "category": "bugfix",
+      "description": "Choosing a card must place THAT entry on the system clipboard. Live bug: it pasted the most-recent entry instead. The 005 test only asserted the internal _lastWrite field, not the real clipboard, so the regression passed headlessly. This slice adds an end-to-end clipboard read-back test and fixes the cause. Suspect: activate() fires _pasteBack un-awaited and dismisses immediately (onPick), whereas the known-good original (strata@edu4rdshl.dev panel.js _onItemActivated) awaits GetItemContent and writes the clipboard BEFORE closing. Confirm against the live journal before settling on the fix.",
+      "steps": [
+        "After activating a non-top card, the system clipboard actually holds THAT card's content (read back via St.Clipboard.get_text in the nested session), not the top-of-history entry",
+        "The clipboard write is not lost when the visor dismisses: GetItemContent resolves and the clipboard is set even though the visor closes (write before dismiss, matching the original _onItemActivated ordering)",
+        "TEST FIRST: verify.sh case 012 stubs _fetchContent for a specific non-top card, activates it, then READS the nested session real clipboard and asserts it equals that card's content (an end-to-end check, not just _lastWrite). If the bug does not reproduce headlessly because it is Wayland-specific, record that in the case and rely on the live smoke step below; do not flip passes on _lastWrite alone. 005 re-verified",
+        "Manual live smoke + journal: click an older entry, paste into a text editor, confirm it matches; capture journalctl '[Strata UI]' lines if it does not"
+      ],
+      "blockedBy": [
+        "005"
+      ],
+      "refs": [
+        "ADR-0005",
+        "reference/strata-daemon-dbus-contract.md",
+        "strata@edu4rdshl.dev/ui/panel.js (_onItemActivated/_writeToClipboard)"
+      ],
+      "passes": false
+    },
+    {
+      "id": "013",
+      "title": "Gear opens the preferences window (live)",
+      "category": "bugfix",
+      "description": "The header gear hides the visor then calls openPreferences(); live, the visor closes but no prefs window appears. prefs.js is Adw and cannot be loaded headlessly (008 only node --check-ed it), so this needs a live smoke plus the journal error to root-cause (a likely candidate is an Adw API that the running GNOME 48/49/50 changed or removed, e.g. Adw.MessageDialog in the shortcut dialog, or an openPreferences failure). Harden _onGearClicked so a prefs failure is logged with the [Strata UI] prefix instead of failing silently.",
+      "steps": [
+        "Clicking the gear opens the Strata UI prefs window (General + Privacy pages) and does not merely dismiss the visor",
+        "Root cause captured from journalctl when the gear is pressed; any Adw API incompatibility in prefs.js for the running GNOME is fixed",
+        "_onGearClicked wraps openPreferences in try/catch and logs failures; opening prefs does not depend on the visor's modal still being up",
+        "TEST: keep the headless spy that the gear handler invokes openPreferences() and that prefs.js passes node --check; ADD a documented live smoke step (open prefs, change a key such as visor-edge, confirm it applies live) since Adw cannot load headlessly. Do NOT flip passes on the syntax-check + spy alone"
+      ],
+      "blockedBy": [
+        "008"
+      ],
+      "refs": [
+        "v1-spec.md",
+        "ADR-0001",
+        "strata@edu4rdshl.dev/prefs.js"
+      ],
+      "passes": false
+    },
+    {
+      "id": "014",
+      "title": "Install docs: one Strata extension at a time",
+      "category": "infrastructure",
+      "description": "install.sh must tell the user to disable strata@edu4rdshl.dev and enable strata-ui@elijahlynn.net (Extensions app or the gnome-extensions CLI), and that Wayland needs a log out / back in before a brand-new extension can be enabled. Running both extensions makes them fight over daemon supervision, the Ctrl+Alt+C binding, and clipboard capture.",
+      "steps": [
+        "install.sh prints, in order: log out/in on Wayland first, then disable strata@edu4rdshl.dev, then enable strata-ui@elijahlynn.net, then Ctrl+Alt+C to toggle",
+        "If strata@edu4rdshl.dev is currently enabled, install.sh warns about the conflict",
+        "TEST: verify.sh case 014 statically asserts install.sh references disabling strata@edu4rdshl.dev and enabling strata-ui@elijahlynn.net"
+      ],
+      "blockedBy": [],
+      "refs": [
+        "README.md"
+      ],
+      "passes": false
+    },
+    {
+      "id": "015",
+      "title": "Harness: run the full regression suite every slice",
+      "category": "infrastructure",
+      "description": "Regressions are currently caught only if the agent remembers to re-run neighbouring cases by hand (verify.sh runs a single id; coding-prompt.md only requires the current id). Make the full suite enforced. BUILD THIS FIRST (before 010-014) so every later slice is gated by it, even though its id is higher than theirs.",
+      "steps": [
+        "verify.sh grows an 'all' mode: `bash test-harness/verify.sh all` runs the case for every feature id that has a case block, prints a per-id PASS/FAIL summary, and exits non-zero if ANY case fails",
+        "coding-prompt.md step 5 (and the Red step) require `verify.sh all` to be green before flipping passes / committing, not just the current id",
+        "AGENTS.md regression rule points at `verify.sh all`",
+        "TEST: `verify.sh all` on the current tree runs all built cases and the summary lists every id; temporarily breaking one case makes the run exit non-zero (then revert the break)"
+      ],
+      "blockedBy": [],
+      "refs": [
+        "test-harness/verify.sh",
+        "test-harness/coding-prompt.md",
+        "AGENTS.md"
+      ],
+      "passes": false
     }
   ]
 }

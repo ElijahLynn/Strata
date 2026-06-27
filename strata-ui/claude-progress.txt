@@ -1,5 +1,7 @@
 Strata UI — progress log
 Newest entries on top. Each coding session appends what it did + how to verify.
+Entries are headed with a UTC ISO-8601 timestamp (YYYY-MM-DDThh:mm:ssZ, from
+`date --utc +%Y-%m-%dT%H:%M:%SZ`); older entries predate this and show date only.
 Harness: https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents
 
 ────────────────────────────────────────────────────────────────────────
