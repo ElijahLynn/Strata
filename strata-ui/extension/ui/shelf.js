@@ -509,16 +509,28 @@ export class Shelf {
     closePeek() { this._peek?.close(); }
     isPeeking() { return !!this._peek?.visible; }
 
-    /** Move key focus between cards (Left/Right), scrolling the target into view. */
+    /** Move key focus between cards (Left/Right), scrolling the target into view.
+     *  Returns true if a card now holds focus, false if the move stepped off the
+     *  shelf (left of the first card, or there are no cards) — the caller hands
+     *  focus back to the search box in that case. */
     moveFocus(dir) {
         const cards = this._cardBox ? this._cardBox.get_children() : [];
-        if (!cards.length) return;
-        let idx = cards.indexOf(global.stage.get_key_focus());
-        if (idx < 0) idx = dir > 0 ? -1 : cards.length; // entering from the search box
-        const card = cards[Math.max(0, Math.min(cards.length - 1, idx + dir))];
-        if (!card) return;
+        if (!cards.length) return false;
+        const idx = cards.indexOf(global.stage.get_key_focus());
+        if (idx < 0) {
+            // Focus is in the search box (or nowhere). Right enters the shelf at
+            // the first card; Left has nowhere to go, so stay in search.
+            if (dir < 0) return false;
+            global.stage.set_key_focus(cards[0]);
+            this._ensureCardVisible(cards[0]);
+            return true;
+        }
+        const next = idx + dir;
+        if (next < 0) return false;   // stepping left off the first card → search
+        const card = cards[Math.min(cards.length - 1, next)];
         global.stage.set_key_focus(card);
         this._ensureCardVisible(card);
+        return true;
     }
 
     _ensureCardVisible(card) {

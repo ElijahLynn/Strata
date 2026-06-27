@@ -594,6 +594,29 @@ case "$ID" in
     chk "$(evnum "(function(){return globalThis._sub.length;})()")" "1" "over-cap payload is dropped (size check)"
     ;;
 
+  011)
+    LU="Main.extensionManager.lookup('$UUID').stateObj"
+    # --- runtime: open with browse cards, drive REAL arrow keys through the
+    #     capture phase (the search entry must NOT swallow Left/Right) ---
+    nested_eval "(function(){
+      var e=$LU, sh=e._shelf;
+      globalThis._nM=[]; for (var i=0;i<6;i++) _nM.push({id:'n'+i,mime_type:'text/plain',content_text:'nav '+i,created_at:i,has_thumbnail:false});
+      sh._fetchPage=function(o,l){ return Promise.resolve(_nM.slice(o,o+l)); };
+      e._showVisor(); return 1;
+    })()" >/dev/null 2>&1
+    sleep 0.8
+    focuseq(){ evnum "(function(){return global.stage.get_key_focus()===$1?1:0;})()"; }
+    # focus the search box, then Right should ENTER the shelf at the first card
+    nested_eval "(function(){global.stage.set_key_focus($LU._searchEntry.get_clutter_text()); return 1;})()" >/dev/null 2>&1
+    sleep 0.2
+    nested_key Right; sleep 0.3
+    chk "$(focuseq "$LU._shelf._cardBox.get_first_child()")" "1" "Right from search focuses the first card"
+    nested_key Right; sleep 0.3
+    chk "$(focuseq "$LU._shelf._cardBox.get_children()[1]")" "1" "Right moves focus to the next card"
+    nested_key Left; sleep 0.2; nested_key Left; sleep 0.3
+    chk "$(focuseq "$LU._searchEntry.get_clutter_text()")" "1" "Left off the first card returns focus to search"
+    ;;
+
   *) echo "  note: no feature-specific checks for $ID (generic only)";;
 esac
 

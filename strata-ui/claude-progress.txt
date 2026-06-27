@@ -5,6 +5,28 @@ Entries are headed with a UTC ISO-8601 timestamp (YYYY-MM-DDThh:mm:ssZ, from
 Harness: https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents
 
 ────────────────────────────────────────────────────────────────────────
+2026-06-27T16:21:41Z — 011: Keyboard navigation across the shelf (TDD red→green)
+- Live bug: Left/Right did nothing — focus stayed stuck in the search box. Cause:
+  the search St.Entry's ClutterText consumes the arrow keys for its text cursor in
+  the bubble phase, so the visor's bubble-phase Left/Right handler never saw them.
+- extension.js: Left/Right are now intercepted in the CAPTURE phase (captured-event,
+  where Space/Peek already lives), before the search entry can swallow them. Right
+  enters the shelf from search and walks right; Left walks left and, stepping off
+  the first card, hands focus back to the search box. The dead bubble-phase
+  Left/Right block is removed. Trade (documented): arrows navigate cards instead of
+  moving the search cursor — expected for a launcher.
+- shelf.js: moveFocus(dir) now returns a boolean — true if a card holds focus,
+  false if it stepped off the front (no cards, or Left past card 0) so the caller
+  re-focuses search.
+- TEST FIRST: verify.sh case 011 opens with 6 browse cards, focuses the search
+  clutter_text, then drives REAL keys via the virtual keyboard (nested_key Right):
+  Right → first card, Right → second card, Left+Left → back in the search box
+  (asserted on global.stage.get_key_focus()). RED before impl (Right stayed in
+  search), GREEN after. Full suite 001-011 green.
+- Run: bash test-harness/verify.sh 011   (suite: bash test-harness/verify.sh all)
+- NEXT: 012 paste-back, 013 gear (both want a live journal), 014 install docs.
+
+────────────────────────────────────────────────────────────────────────
 2026-06-27T16:17:21Z — 010: Capture clipboard from other apps (TDD red→green)
 - THE big v1 gap, found in live use: copies made in other apps never reached
   Strata. On GNOME the daemon's data-control monitor doesn't bind (Mutter exposes

@@ -186,6 +186,24 @@ export default class StrataUIExtension extends Extension {
             // Space through so it types a space into the search box.
             if (isSpace && shelf?.peekFocused())
                 return Clutter.EVENT_STOP;
+            // Arrow navigation across the horizontal shelf. We MUST intercept in
+            // the capture phase: the search entry's own ClutterText consumes
+            // Left/Right for its text cursor before a bubble-phase handler would
+            // ever see them (that was the "stuck in search" bug). The trade is
+            // that arrows navigate cards instead of moving the search cursor —
+            // expected for a launcher (Home/End/Backspace still edit the query).
+            const searchText = this._searchEntry?.get_clutter_text();
+            if (sym === Clutter.KEY_Right) {
+                shelf?.moveFocus(1);   // search → first card, then card → card
+                return Clutter.EVENT_STOP;
+            }
+            if (sym === Clutter.KEY_Left) {
+                // moveFocus returns false when stepping left off the first card →
+                // hand focus back to the search box.
+                if (!shelf?.moveFocus(-1) && searchText)
+                    global.stage.set_key_focus(searchText);
+                return Clutter.EVENT_STOP;
+            }
             return Clutter.EVENT_PROPAGATE;
         });
 
@@ -208,11 +226,8 @@ export default class StrataUIExtension extends Extension {
                 this._shelf?.activateVisibleIndex(sym - Clutter.KEY_1 + 1);
                 return Clutter.EVENT_STOP;
             }
-            // Left/Right move focus into and across the shelf.
-            if (sym === Clutter.KEY_Left || sym === Clutter.KEY_Right) {
-                this._shelf?.moveFocus(sym === Clutter.KEY_Right ? 1 : -1);
-                return Clutter.EVENT_STOP;
-            }
+            // Left/Right (card navigation) are handled in the capture phase above,
+            // because the search entry would otherwise swallow them for its cursor.
             return Clutter.EVENT_PROPAGATE;
         });
         // Click on the layer but outside the band → dismiss.
