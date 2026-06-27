@@ -133,6 +133,13 @@ export class Shelf {
         this.renderStats.count = 0;
     }
 
+    /** Apply a new card-width live (feature 008 prefs): resize every existing
+     *  card and remember it so the next page renders at the new width too. */
+    setCardWidth(w) {
+        this._cardWidth = w;
+        for (const card of this._cards.values()) card.setWidth(w);
+    }
+
     // -- Search (feature 004) --------------------------------------------------
 
     /** Debounce search-box input; collapses rapid keystrokes into one query. */

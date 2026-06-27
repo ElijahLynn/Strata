@@ -59,6 +59,9 @@ class Card extends St.Button {
         this.connect('key-focus-out', () => this.remove_style_class_name('strata-card-focused'));
     }
 
+    /** Re-apply a new card-width live (feature 008 prefs). */
+    setWidth(w) { this.set_width(w); }
+
     _buildBody(meta, raw) {
         switch (this.cardType) {
             case 'image': return this._buildThumb();

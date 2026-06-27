@@ -53,12 +53,14 @@ export default class StrataUIExtension extends Extension {
         this._connectProxy();     // async — never blocks if the daemon isn't up yet.
         this._buildVisor();
         this._registerShortcut();
+        this._watchSettings();    // live layout + theme; also applies the theme now
         console.log('[Strata UI] enabled');
     }
 
     disable() {
         this._shuttingDown = true;
         this._unregisterShortcut();
+        this._unwatchSettings();
         this._hideVisor();
         this._shelf?.destroy();
         this._shelf = null;
@@ -66,6 +68,7 @@ export default class StrataUIExtension extends Extension {
         this._visor = null;
         this._band = null;
         this._searchEntry = null;
+        this._gearButton = null;
         if (this._daemonRestartTimerId !== null) {
             GLib.Source.remove(this._daemonRestartTimerId);
             this._daemonRestartTimerId = null;
@@ -98,7 +101,7 @@ export default class StrataUIExtension extends Extension {
             reactive: true,
         });
 
-        // Header: search box (search-first). The gear button arrives in 008.
+        // Header: search box (search-first) + a gear that opens our prefs.
         const header = new St.BoxLayout({style_class: 'strata-visor-header', x_expand: true});
         this._searchEntry = new St.Entry({
             style_class: 'strata-search',
@@ -114,6 +117,19 @@ export default class StrataUIExtension extends Extension {
             this._shelf?.activatePick(null);
         });
         header.add_child(this._searchEntry);
+
+        // In-UI settings (req #5): the gear opens our prefs window directly via
+        // openPreferences() — no detour through the GNOME Extensions app. Dismiss
+        // the visor first so its modal grab doesn't fight the prefs window.
+        this._gearButton = new St.Button({
+            style_class: 'strata-gear',
+            child: new St.Icon({icon_name: 'emblem-system-symbolic', icon_size: 18}),
+            can_focus: true,
+            reactive: true,
+            y_align: Clutter.ActorAlign.CENTER,
+        });
+        this._gearButton.connect('clicked', () => this._onGearClicked());
+        header.add_child(this._gearButton);
 
         // The shelf renders clipboard history as a horizontal band of cards,
         // paginated from the daemon and loaded on each open. onPick dismisses
@@ -193,14 +209,23 @@ export default class StrataUIExtension extends Extension {
         const h = this._settings.get_int('visor-height');
         const edge = this._settings.get_string('visor-edge');
 
-        // Layer covers the whole monitor; band is pinned to the chosen edge.
+        // The layer covers the whole monitor; the band is a fixed-height strip
+        // pinned to the chosen edge. We let the visor's BinLayout place the band
+        // via alignment (FILL across, START/END to the edge) rather than absolute
+        // coords — a child's set_y is ignored under a layout manager, and a FILL
+        // y-align would stretch the band to full height (so set_height is moot).
         this._visor.set_position(m.x, m.y);
         this._visor.set_size(m.width, m.height);
 
-        this._band.set_width(m.width);
         this._band.set_height(h);
-        this._band.set_x(0);
-        this._band.set_y(edge === 'top' ? 0 : m.height - h);
+        this._band.x_align = Clutter.ActorAlign.FILL;
+        this._band.y_align = edge === 'top' ? Clutter.ActorAlign.START : Clutter.ActorAlign.END;
+    }
+
+    /** Gear handler: drop the modal grab, then open our prefs in-UI (req #5). */
+    _onGearClicked() {
+        this._hideVisor();
+        this.openPreferences();
     }
 
     _toggleVisor() {
@@ -239,6 +264,62 @@ export default class StrataUIExtension extends Extension {
         }
         this._visor?.hide();
         this._visorVisible = false;
+    }
+
+    // -- Settings: live layout + theme (feature 008) ---------------------------
+
+    /** React to prefs changes without a re-enable: layout keys re-flow the visor
+     *  (live if open, else on next summon), the theme re-toggles its CSS class.
+     *  Cheap signal handlers only — nothing here blocks the main loop. */
+    _watchSettings() {
+        this._settingsIds = [
+            this._settings.connect('changed::visor-edge', () => this._relayoutVisor()),
+            this._settings.connect('changed::visor-height', () => this._relayoutVisor()),
+            this._settings.connect('changed::card-width', () =>
+                this._shelf?.setCardWidth(this._settings.get_int('card-width'))),
+            this._settings.connect('changed::theme', () => this._applyTheme()),
+        ];
+        // 'auto' theme follows the system light/dark preference.
+        this._interfaceSettings = new Gio.Settings({schema_id: 'org.gnome.desktop.interface'});
+        this._interfaceThemeId = this._interfaceSettings.connect('changed::color-scheme', () => {
+            if (this._settings.get_string('theme') === 'auto') this._applyTheme();
+        });
+        this._applyTheme();   // set the initial class
+    }
+
+    _unwatchSettings() {
+        if (this._settingsIds && this._settings) {
+            for (const id of this._settingsIds) this._settings.disconnect(id);
+        }
+        this._settingsIds = null;
+        if (this._interfaceThemeId && this._interfaceSettings) {
+            this._interfaceSettings.disconnect(this._interfaceThemeId);
+        }
+        this._interfaceThemeId = 0;
+        this._interfaceSettings = null;
+    }
+
+    _relayoutVisor() {
+        if (this._visorVisible) this._positionVisor();   // else picked up on next open
+    }
+
+    /** Theme via class-toggle (ADR/req): swap a single CSS class on the visor —
+     *  never re-parse markup. 'auto' resolves against the system color-scheme. */
+    _applyTheme() {
+        if (!this._visor) return;
+        const resolved = this._resolveTheme();
+        this._visor.remove_style_class_name('strata-theme-light');
+        this._visor.remove_style_class_name('strata-theme-dark');
+        this._visor.add_style_class_name(`strata-theme-${resolved}`);
+    }
+
+    _resolveTheme() {
+        const theme = this._settings.get_string('theme');
+        if (theme === 'light' || theme === 'dark') return theme;
+        // auto: prefer-dark → dark; default / prefer-light → light.
+        let scheme = 'default';
+        try { scheme = this._interfaceSettings?.get_string('color-scheme') ?? 'default'; } catch (_) {}
+        return scheme === 'prefer-dark' ? 'dark' : 'light';
     }
 
     // -- Shortcut --------------------------------------------------------------

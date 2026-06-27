@@ -49,5 +49,38 @@
       <description>Reuses Strata's key. When on, copying an item moves its card to position 1 for immediate feedback; the daemon also re-ranks it by recency on the re-copy.</description>
     </key>
 
+    <!-- Keys reused from Strata (ADR-0001), wired into the prefs UI in feature 008. -->
+
+    <key name="theme" type="s">
+      <choices>
+        <choice value="auto"/>
+        <choice value="light"/>
+        <choice value="dark"/>
+      </choices>
+      <default>'auto'</default>
+      <summary>Visor color theme</summary>
+      <description>Applied by toggling a CSS class on the visor (class-toggle), never by re-parsing markup. Auto follows the system light/dark preference (org.gnome.desktop.interface color-scheme); Light and Dark force a fixed theme.</description>
+    </key>
+
+    <key name="max-text-mb" type="i">
+      <default>1</default>
+      <range min="1" max="100"/>
+      <summary>Maximum text clipboard item size (MB)</summary>
+      <description>Reuses Strata's key. Text payloads larger than this are not stored by the daemon.</description>
+    </key>
+
+    <key name="max-image-mb" type="i">
+      <default>5</default>
+      <range min="1" max="100"/>
+      <summary>Maximum image clipboard item size (MB)</summary>
+      <description>Reuses Strata's key. Image payloads larger than this are not stored by the daemon.</description>
+    </key>
+
+    <key name="excluded-apps" type="as">
+      <default><![CDATA[['1password', 'keepassxc', 'keepass', 'gnome-secrets', 'bitwarden', 'dashlane', 'lastpass', 'enpass']]]></default>
+      <summary>App WM-class substrings excluded from clipboard history</summary>
+      <description>Reuses Strata's key. Items copied while one of these apps has keyboard focus are dropped (the live ItemAdded filter lands in feature 009). Case-insensitive substring match.</description>
+    </key>
+
   </schema>
 </schemalist>

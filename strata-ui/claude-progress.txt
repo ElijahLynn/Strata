@@ -220,3 +220,51 @@ headlessly. The loop implements + static-checks + commits a feature, but a human
 must test it in a live GNOME session (steps live in each feature's `steps`) before
 setting passes=true.
 ────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────
+2026-06-27 — starting 008: Settings (in-UI gear + layout keys)
+2026-06-27 — 008: Settings (in-UI gear + layout keys) (TDD red→green, verified headlessly)
+- NEW extension/prefs.js: the in-UI preferences window (Adw/Gtk, GNOME 45+),
+  opened straight from a gear in the visor header via Extension.openPreferences()
+  (req #5 — no detour through the GNOME Extensions app). General page groups:
+  Layout (visor-edge Top/Bottom ComboRow, visor-height + card-width SpinRows),
+  History (max-history, page-size, max-text-mb, max-image-mb, move-activated-to-top),
+  Appearance (theme ComboRow), Keyboard (shortcut ActionRow). Privacy page:
+  excluded-apps editable list. The shortcut dialog + excluded-apps list are lifted
+  verbatim from strata@edu4rdshl.dev (ADR-0001); the Layout group is new (ADR-0004).
+- gschema: added the reused Strata keys theme (auto/light/dark), max-text-mb (1),
+  max-image-mb (5), excluded-apps (password-manager default list). (visor-edge,
+  visor-height, card-width, max-history, page-size, keyboard-shortcut,
+  move-activated-to-top already existed from 001–005.)
+- extension.js: a gear St.Button in the header (emblem-system-symbolic) wired to
+  _onGearClicked() → _hideVisor() + this.openPreferences(). _watchSettings()
+  connects changed:: handlers — visor-edge/visor-height re-flow the band live
+  (_relayoutVisor, only when open), card-width → shelf.setCardWidth() resizes every
+  existing card, theme → _applyTheme(). theme is class-toggle (req): _applyTheme()
+  swaps a single CSS class on the visor (strata-theme-light / strata-theme-dark),
+  NEVER set_markup; 'auto' resolves against org.gnome.desktop.interface
+  color-scheme (and re-applies when that changes). _unwatchSettings() in disable().
+- LAYOUT FIX (affects all features, an improvement): _positionVisor() now pins the
+  band with BinLayout alignment (x_align FILL across, y_align START/END to the
+  chosen edge) + set_height, instead of set_x/set_y. A child's set_y is ignored
+  under a layout manager and the default FILL y-align stretched the band to full
+  monitor height (so visor-height did nothing). Now the band is a true fixed-height
+  strip at the edge — confirmed by the live visor-height test (420px band, desktop
+  visible below). 001–007 re-verified green (no regression).
+- shelf.js: setCardWidth(w) updates _cardWidth + resizes live cards; card.js:
+  setWidth(w) seam. (Next page renders at the new width too.)
+- stylesheet.css: .strata-gear styling + the class-toggle theme blocks
+  (.strata-theme-dark restates the dark default; .strata-theme-light re-skins band,
+  search, gear, cards, subtitles for a light desktop).
+- TEST FIRST: verify.sh case 008 statically asserts prefs.js exists, openPreferences
+  is referenced, the gschema carries all 10 keys, prefs.js wires each layout/reused
+  key, no set_markup, theme classes exist in extension.js + stylesheet. Runtime:
+  the header gear is an St.Button whose handler calls openPreferences() (spied),
+  theme defaults to auto, excluded-apps ships populated, theme=dark/light/auto
+  toggle exactly one strata-theme-* class on the visor, and visor-edge=top /
+  visor-height=420 / card-width=250 all update the open visor live. RED before impl
+  (prefs/keys/gear/theme/live all failed), GREEN after. prefs.js + extension.js
+  node --check clean (prefs.js can't load headlessly — Adw needs a display).
+- Run: bash test-harness/verify.sh 008   (shot: test-harness/screenshots/008.png)
+- NEXT ready: 009 (live updates / signals) — blockedBy 002✓. Last v1-mvp feature.
+

@@ -403,6 +403,71 @@ case "$ID" in
     chk "$(evnum "(function(){var S=imports.gi.St,c=$LU._shelf._cards.get('plain'); return (c._textLabel instanceof S.Label)?1:0;})()")" "1" "Text card body is an St.Label"
     ;;
 
+  008)
+    LU="Main.extensionManager.lookup('$UUID').stateObj"
+    GS="$EXT/schemas/org.gnome.shell.extensions.strata-ui.gschema.xml"
+    # --- static asserts: in-UI prefs (openPreferences, no Extensions-app detour) ---
+    chk "$([ -f "$EXT/prefs.js" ] && echo y || echo n)" "y" "prefs.js exists (in-UI preferences window)"
+    chk "$(grep -qs 'openPreferences' "$EXT/extension.js" && echo y || echo n)" "y" "gear opens prefs via openPreferences()"
+    # gschema carries the new layout keys + the reused Strata keys (req #2)
+    for k in visor-edge visor-height card-width theme max-history max-text-mb max-image-mb keyboard-shortcut excluded-apps move-activated-to-top; do
+      chk "$(grep -qs "name=\"$k\"" "$GS" && echo y || echo n)" "y" "gschema has key: $k"
+    done
+    # prefs.js wires a row for each layout key + the key reused-from-Strata bundle
+    for k in visor-edge visor-height card-width theme max-history excluded-apps keyboard-shortcut; do
+      chk "$(grep -qs "'$k'" "$EXT/prefs.js" && echo y || echo n)" "y" "prefs.js wires key: $k"
+    done
+    # theme is applied by toggling a CSS class (class-toggle), never set_markup / stylesheet swap
+    if grep -rqs 'set_markup(' "$EXT/extension.js" "$EXT/ui"; then
+      echo "  FAIL: set_markup() found (clipboard/theme must never be markup-parsed)"; fail=1
+    else echo "  ok  : no set_markup() (class-toggle theming)"; fi
+    chk "$(grep -qs 'strata-theme-' "$EXT/extension.js" && echo y || echo n)" "y" "theme applied via class-toggle (strata-theme-*)"
+    chk "$(grep -qs 'strata-theme-' "$EXT/stylesheet.css" && echo y || echo n)" "y" "stylesheet defines theme classes"
+
+    # --- runtime: a gear St.Button in the header that triggers openPreferences (spied) ---
+    nested_eval "(function(){ var e=$LU; globalThis._prefsOpened=0; e.openPreferences=function(){ globalThis._prefsOpened++; }; return 1; })()" >/dev/null 2>&1
+    chk "$(evnum "(function(){return ($LU._gearButton instanceof imports.gi.St.Button)?1:0;})()")" "1" "header has a gear St.Button"
+    # Drive the gear's actual handler (the arrow it's connected to) — deterministic,
+    # without depending on St.Button 'clicked' signal arity in the nested shell.
+    nested_eval "(function(){ $LU._onGearClicked(); return 1; })()" >/dev/null 2>&1
+    sleep 0.3
+    chk "$(evnum "globalThis._prefsOpened")" "1" "the gear handler calls openPreferences()"
+
+    # --- runtime: reused keys readable with sane defaults ---
+    chk "$(nested_eval "$LU._settings.get_string('theme')" 2>/dev/null | grep -oE 'auto|light|dark' | head -1)" "auto" "theme defaults to auto"
+    chk "$(evnum "(function(){return $LU._settings.get_strv('excluded-apps').length>0?1:0;})()")" "1" "excluded-apps ships a populated default"
+
+    # --- runtime: theme class-toggle on the visor ---
+    setTheme(){ nested_eval "(function(){$LU._settings.set_string('theme','$1'); return 1;})()" >/dev/null 2>&1; sleep 0.3; }
+    hasCls(){ evnum "(function(){return $LU._visor.has_style_class_name('$1')?1:0;})()"; }
+    setTheme dark
+    chk "$(hasCls strata-theme-dark)" "1" "theme=dark adds the dark class to the visor"
+    setTheme light
+    chk "$(hasCls strata-theme-light)" "1" "theme=light adds the light class"
+    chk "$(hasCls strata-theme-dark)" "0" "theme=light removes the dark class (toggle, not stack)"
+    setTheme auto
+    chk "$(evnum "(function(){var v=$LU._visor; return (v.has_style_class_name('strata-theme-light')||v.has_style_class_name('strata-theme-dark'))?1:0;})()")" "1" "theme=auto resolves to a concrete light/dark class"
+
+    # --- runtime: live layout updates (open with cards, change keys, observe) ---
+    nested_eval "(function(){
+      var e=$LU, sh=e._shelf;
+      globalThis._lM=[]; for(var i=0;i<8;i++) _lM.push({id:'L'+i,mime_type:'text/plain',content_text:'live card '+i,created_at:i,has_thumbnail:false});
+      sh._fetchPage=function(o,l){ return Promise.resolve(_lM.slice(o,o+l)); };
+      e._settings.set_string('visor-edge','bottom');
+      e._showVisor(); return 1;
+    })()" >/dev/null 2>&1
+    sleep 0.8
+    nested_eval "(function(){ $LU._settings.set_string('visor-edge','top'); return 1; })()" >/dev/null 2>&1
+    sleep 0.3
+    chk "$(evnum "(function(){return Math.round($LU._band.get_y());})()")" "0" "visor-edge=top moves the band to the top edge live"
+    nested_eval "(function(){ $LU._settings.set_int('visor-height', 420); return 1; })()" >/dev/null 2>&1
+    sleep 0.3
+    chk "$(evnum "(function(){return Math.round($LU._band.get_height());})()")" "420" "visor-height updates the band height live"
+    nested_eval "(function(){ $LU._settings.set_int('card-width', 250); return 1; })()" >/dev/null 2>&1
+    sleep 0.3
+    chk "$(evnum "(function(){var c=$LU._shelf._cards.get('L0'); return c?Math.round(c.get_width()):-1;})()")" "250" "card-width updates existing cards live"
+    ;;
+
   *) echo "  note: no feature-specific checks for $ID (generic only)";;
 esac
 

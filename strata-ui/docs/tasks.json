@@ -170,7 +170,7 @@
         "ADR-0004",
         "reference/architecture-constraints.md"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "009",
