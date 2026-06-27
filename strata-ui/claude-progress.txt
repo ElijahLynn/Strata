@@ -5,6 +5,61 @@ Entries are headed with a UTC ISO-8601 timestamp (YYYY-MM-DDThh:mm:ssZ, from
 Harness: https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents
 
 ────────────────────────────────────────────────────────────────────────
+2026-06-27T19:54:19Z — 016: Test clipboard corpus (3 of each claimed type) (TDD red→green)
+
+WHY. Every verify case rolled its own inline, almost-all-TEXT stub; there was no
+shared corpus and NO case ever loaded a REAL image. That is exactly why the image
+paste-back bug shipped — the binary `ay` path was never exercised. 016 builds one
+reusable corpus of realistic items, 3 of EACH claimed type with REAL bytes, and a
+loader the cases share, so the "tested-but-wrong-data" miss can't recur.
+
+CLAIMED TYPES — taken FROM THE SOURCE, not invented. Union of:
+  - docs/reference/strata-daemon-dbus-contract.md "Supported MIME": images
+    png/jpeg/gif/webp/bmp/tiff/ico; text plain/html/rtf/markdown; files
+    text/uri-list + gnome/kde copied-files.
+  - strata@edu4rdshl.dev/extension.js _pickMime PREFERRED allowlist (same set,
+    ranked; plain-text above rich-text).
+  - extension/ui/card.js classify() rendered cardTypes: image, file, link, color,
+    text (link + color are text/plain regex variants).
+
+CORPUS (test-harness/corpus/, 28 items, manifest.json describes file+mime+cardType):
+  - text/ 3 plain · html/ 3 · rtf/ 3 · markdown/ 3   → all classify to Text (St.Label)
+  - files/ 3 (2× text/uri-list, 1× x-special/gnome-copied-files w/ leading op line)
+  - images/ REAL raster bytes: 3 PNGs (\x89PNG verified) + jpeg/gif/bmp/webp (7 total)
+  - links/ 3 real URLs · colors/ 3 real #hex (#3af, #1188ff, #ABC)
+  Image + raster bytes are REAL (ImageMagick-generated); not stubs.
+
+LOADER (test-harness/corpus/loader.js, installs globalThis.StrataCorpus):
+  - seedViaSubmit(baseDir, proxy, cb) — PREFERRED: SubmitItem each item's raw bytes
+    into the throwaway daemon (images via the binary `ay` path), exercising capture +
+    storage + thumbnailing. FIRST case to push real raster bytes through the daemon.
+  - stubFetchPage(shelf, baseDir) — daemon-free: builds ItemMeta[] from the corpus and
+    overrides shelf._fetchPage for deterministic classification/render asserts.
+  Self-eval'ing IIFE (works regardless of imports.searchPath); reads bytes off disk
+  with GLib.file_get_contents so the REAL fixture bytes reach the daemon.
+
+TEST (verify.sh case 016). TDD: RED with the corpus/loader removed (every assert
+fails for the right reason), GREEN with it. Asserts each item classifies to the
+correct cardType and renders its body — image → thumbnail container, file → filename
+(incl. the gnome-copied-files op-line skip → holiday.jpg), link → hostname subtitle
+(www. stripped), color → swatch carrying the hex, text/html/rtf/markdown → St.Label —
+and that real image/png bytes reach the daemon (history shows image/png, no
+content_text, has_thumbnail once the daemon decodes the real PNG). TEETH proven twice:
+breaking the loader (submit images under application/octet-stream → daemon rejects,
+nothing stored) goes RED; breaking the Link renderer (hardcode the subtitle) goes RED;
+both restore to green. verify.sh all → ALL GREEN (001–014 + 016).
+
+FOLLOW-UP (NOT fixed here — separate slice). Image RENDERING + storage + thumbnailing
+are covered, but image PASTE-BACK is NOT asserted: pushing a REAL image through full
+paste-back still exposes the known "No compatible transfer format found" bug. 016
+deliberately stops short of asserting image paste-back SUCCEEDS so the suite isn't
+forced green over a real defect. Now that the corpus exists, a future image-paste-back
+fix slice can drive a REAL image end-to-end (SetClipboard/Meta.SelectionSourceMemory →
+St.Clipboard read-back) using StrataCorpus rather than another hand-rolled stub.
+
+Run: bash test-harness/verify.sh 016   (shot: test-harness/screenshots/016.png)
+
+────────────────────────────────────────────────────────────────────────
 2026-06-27T19:27:58Z — 012 + 013: ONE root-caused bug — the visor click-dismiss handler ate card & gear clicks (band Y, not X)
 
 REAL ROOT CAUSE (one bug, unifying 012 and 013). The visor's button-press-event

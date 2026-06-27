@@ -1,0 +1,5 @@
+# The Test Clipboard Corpus (slice 016) ships REAL image bytes as committed
+# fixtures. The repo-root .gitignore ignores *.png (screenshots/scratch); these
+# corpus images are deliberate, so un-ignore them here.
+!images/
+!images/*.png

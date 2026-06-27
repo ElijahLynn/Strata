@@ -1,0 +1,40 @@
+{
+  "comment": "Test clipboard corpus (slice 016). 3 realistic items of EACH claimed type, with REAL bytes on disk. 'claimed' = the union of: docs/reference/strata-daemon-dbus-contract.md 'Supported MIME', strata@edu4rdshl.dev/extension.js _pickMime PREFERRED allowlist, and extension/ui/card.js classify() (rendered cardTypes: image, file, link, color, text). Each entry names the file (relative to this dir), the MIME the daemon would store it under, and the cardType extension/ui/card.js classify() must produce. binary:true items are raster image blobs; the rest are UTF-8 text payloads.",
+  "items": [
+    { "id": "text-1",  "type": "text/plain",     "file": "text/plain-1.txt",        "cardType": "text",  "binary": false },
+    { "id": "text-2",  "type": "text/plain",     "file": "text/plain-2.txt",        "cardType": "text",  "binary": false },
+    { "id": "text-3",  "type": "text/plain",     "file": "text/plain-3.txt",        "cardType": "text",  "binary": false },
+
+    { "id": "html-1",  "type": "text/html",      "file": "html/snippet-1.html",     "cardType": "text",  "binary": false },
+    { "id": "html-2",  "type": "text/html",      "file": "html/snippet-2.html",     "cardType": "text",  "binary": false },
+    { "id": "html-3",  "type": "text/html",      "file": "html/snippet-3.html",     "cardType": "text",  "binary": false },
+
+    { "id": "rtf-1",   "type": "text/rtf",       "file": "rtf/doc-1.rtf",           "cardType": "text",  "binary": false },
+    { "id": "rtf-2",   "type": "text/rtf",       "file": "rtf/doc-2.rtf",           "cardType": "text",  "binary": false },
+    { "id": "rtf-3",   "type": "text/rtf",       "file": "rtf/doc-3.rtf",           "cardType": "text",  "binary": false },
+
+    { "id": "md-1",    "type": "text/markdown",  "file": "markdown/md-1.md",        "cardType": "text",  "binary": false },
+    { "id": "md-2",    "type": "text/markdown",  "file": "markdown/md-2.md",        "cardType": "text",  "binary": false },
+    { "id": "md-3",    "type": "text/markdown",  "file": "markdown/md-3.md",        "cardType": "text",  "binary": false },
+
+    { "id": "file-1",  "type": "text/uri-list",  "file": "files/uri-list-1.uri-list",          "cardType": "file", "binary": false, "expectName": "photo.png" },
+    { "id": "file-2",  "type": "text/uri-list",  "file": "files/uri-list-2.uri-list",          "cardType": "file", "binary": false, "expectName": "report final.pdf" },
+    { "id": "file-3",  "type": "x-special/gnome-copied-files", "file": "files/copied-files-3.gnome-copied-files", "cardType": "file", "binary": false, "expectName": "holiday.jpg" },
+
+    { "id": "img-png-1", "type": "image/png",  "file": "images/img-png-1.png", "cardType": "image", "binary": true },
+    { "id": "img-png-2", "type": "image/png",  "file": "images/img-png-2.png", "cardType": "image", "binary": true },
+    { "id": "img-png-3", "type": "image/png",  "file": "images/img-png-3.png", "cardType": "image", "binary": true },
+    { "id": "img-jpeg",  "type": "image/jpeg", "file": "images/img-jpeg.jpg",  "cardType": "image", "binary": true },
+    { "id": "img-gif",   "type": "image/gif",  "file": "images/img-gif.gif",   "cardType": "image", "binary": true },
+    { "id": "img-bmp",   "type": "image/bmp",  "file": "images/img-bmp.bmp",   "cardType": "image", "binary": true },
+    { "id": "img-webp",  "type": "image/webp", "file": "images/img-webp.webp", "cardType": "image", "binary": true },
+
+    { "id": "link-1",  "type": "text/plain", "file": "links/url-1.txt", "cardType": "link", "binary": false, "expectHost": "example.com" },
+    { "id": "link-2",  "type": "text/plain", "file": "links/url-2.txt", "cardType": "link", "binary": false, "expectHost": "rust-lang.org" },
+    { "id": "link-3",  "type": "text/plain", "file": "links/url-3.txt", "cardType": "link", "binary": false, "expectHost": "github.com" },
+
+    { "id": "color-1", "type": "text/plain", "file": "colors/color-1.txt", "cardType": "color", "binary": false, "expectHex": "#3af" },
+    { "id": "color-2", "type": "text/plain", "file": "colors/color-2.txt", "cardType": "color", "binary": false, "expectHex": "#1188ff" },
+    { "id": "color-3", "type": "text/plain", "file": "colors/color-3.txt", "cardType": "color", "binary": false, "expectHex": "#abc" }
+  ]
+}

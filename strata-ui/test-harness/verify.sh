@@ -840,6 +840,101 @@ case "$ID" in
     chk "$(grep -Eiqs 'conflict|both|fight' "$INS" && echo y || echo n)" "y" "install.sh warns about the two-extensions conflict"
     ;;
 
+  016)
+    LU="Main.extensionManager.lookup('$UUID').stateObj"
+    CORPUS="$HARNESS/corpus"
+    # --- Test Clipboard Corpus: one shared fixture of 3 realistic items of EACH
+    #     claimed type, with REAL bytes (real PNGs included). Every other case rolls
+    #     its own inline, almost-all-TEXT stub and NO case loads a REAL image — which
+    #     is why the image paste-back bug shipped (the binary path was never run).
+    #     This case loads the corpus, asserts each type classifies + renders, and
+    #     proves real PNG bytes reach the daemon via SubmitItem. ---
+
+    # static: the corpus + loader exist and cover every claimed cardType
+    chk "$([ -f "$CORPUS/manifest.json" ] && echo y || echo n)" "y" "corpus manifest exists"
+    chk "$([ -f "$CORPUS/loader.js" ] && echo y || echo n)" "y" "corpus loader exists"
+    chk "$([ -f "$CORPUS/images/img-png-1.png" ] && echo y || echo n)" "y" "corpus ships REAL PNG image bytes"
+    # the first 8 bytes of img-png-1.png must be the PNG magic signature (real bytes, not a stub)
+    chk "$(head -c 8 "$CORPUS/images/img-png-1.png" 2>/dev/null | od -An -tu1 | tr -s ' ' | sed 's/^ //')" "137 80 78 71 13 10 26 10" "corpus PNG starts with the \\x89PNG magic signature"
+    for ct in text html rtf markdown files links colors images; do
+      n=$(ls "$CORPUS/$ct" 2>/dev/null | wc -l)
+      chk "$([ "$n" -ge 3 ] && echo y || echo n)" "y" "corpus has >=3 $ct items (got $n)"
+    done
+
+    # load the corpus loader into the nested shell (it installs globalThis.StrataCorpus)
+    LSRC="$(cat "$CORPUS/loader.js")"
+    nested_eval "$LSRC" >/dev/null 2>&1
+    chk "$(evnum "(function(){return (globalThis.StrataCorpus&&typeof StrataCorpus.items==='function')?1:0;})()")" "1" "corpus loader installed globalThis.StrataCorpus"
+    chk "$(evnum "(function(){return globalThis.StrataCorpus.items('$CORPUS').length;})()")" "28" "loader reads all 28 corpus items off disk"
+
+    # --- classification + rendering: stub the shelf seam with the corpus and open ---
+    nested_eval "(function(){
+      var e=$LU, sh=e._shelf;
+      globalThis._cm = StrataCorpus.stubFetchPage(sh, '$CORPUS');
+      e._showVisor(); return 1;
+    })()" >/dev/null 2>&1
+    sleep 1.0
+    ctype(){ nested_eval "(function(){var c=$LU._shelf._cards.get('$1'); return c?c.cardType:'none';})()" 2>/dev/null | grep -oE "(link|color|file|text|image|none)" | head -1; }
+
+    # every text-family item (plain/html/rtf/markdown) classifies to a Text card with an St.Label
+    for id in text-1 text-2 text-3 html-1 html-2 html-3 rtf-1 rtf-2 rtf-3 md-1 md-2 md-3; do
+      chk "$(ctype $id)" "text" "$id classifies as a Text card"
+    done
+    chk "$(evnum "(function(){var S=imports.gi.St,c=$LU._shelf._cards.get('html-1'); return (c._textLabel instanceof S.Label)?1:0;})()")" "1" "an html item renders an St.Label (no markup)"
+
+    # all 3 file items (uri-list + gnome-copied-files) classify as File and render a filename
+    for id in file-1 file-2 file-3; do chk "$(ctype $id)" "file" "$id classifies as a File card"; done
+    chk "$(evnum "(function(){var c=$LU._shelf._cards.get('file-1'); return ((c._fileText.get_text()||'').indexOf('photo.png')>=0)?1:0;})()")" "1" "File card shows the parsed filename (photo.png)"
+    chk "$(evnum "(function(){var c=$LU._shelf._cards.get('file-3'); return ((c._fileText.get_text()||'').indexOf('holiday.jpg')>=0)?1:0;})()")" "1" "gnome-copied-files card skips the op line and shows holiday.jpg"
+
+    # all 3 link items classify as Link and show the hostname subtitle
+    for id in link-1 link-2 link-3; do chk "$(ctype $id)" "link" "$id classifies as a Link card"; done
+    chk "$(evnum "(function(){var c=$LU._shelf._cards.get('link-1'); return (c._subtitle&&c._subtitle.get_text()==='example.com')?1:0;})()")" "1" "Link card subtitle is the hostname (example.com)"
+    chk "$(evnum "(function(){var c=$LU._shelf._cards.get('link-2'); return (c._subtitle&&c._subtitle.get_text()==='rust-lang.org')?1:0;})()")" "1" "Link card strips www. (rust-lang.org)"
+
+    # all 3 color items classify as Color and the swatch carries the hex
+    for id in color-1 color-2 color-3; do chk "$(ctype $id)" "color" "$id classifies as a Color card"; done
+    chk "$(evnum "(function(){var c=$LU._shelf._cards.get('color-2'); return ((c._swatch.style||'').toLowerCase().indexOf('#1188ff')>=0)?1:0;})()")" "1" "Color card swatch uses the hex as its background-color"
+
+    # all 7 raster items classify as Image and render the thumbnail container (placeholder)
+    for id in img-png-1 img-png-2 img-png-3 img-jpeg img-gif img-bmp img-webp; do
+      chk "$(ctype $id)" "image" "$id classifies as an Image card"
+    done
+    chk "$(evnum "(function(){var c=$LU._shelf._cards.get('img-png-1'); return (c._thumbContainer&&(c._thumbContainer instanceof imports.gi.St.Widget))?1:0;})()")" "1" "Image card renders a thumbnail container"
+
+    # --- PREFERRED path: push the REAL corpus bytes through the daemon via SubmitItem.
+    #     This is the first case to send real raster image bytes down the binary `ay`
+    #     path (capture + storage + thumbnailing), the gap that let the image bug ship.
+    for i in $(seq 1 40); do
+      [ "$(evnum "(function(){return ($LU._proxy&&$LU._proxy.SubmitItemRemote)?1:0;})()")" = "1" ] && break; sleep 0.1
+    done
+    chk "$(evnum "(function(){return ($LU._proxy&&$LU._proxy.SubmitItemRemote)?1:0;})()")" "1" "daemon D-Bus proxy is ready"
+    nested_eval "(function(){
+      var e=$LU; e._disconnectClipboardMonitor();   // isolate: no capture racing our submits
+      globalThis._seeded=0;
+      e._proxy.ClearHistoryRemote(function(){
+        StrataCorpus.seedViaSubmit('$CORPUS', e._proxy, function(n){ globalThis._seeded=n; });
+      });
+      return 1;
+    })()" >/dev/null 2>&1
+    for i in $(seq 1 80); do [ "$(evnum "(function(){return globalThis._seeded;})()")" = "28" ] && break; sleep 0.1; done
+    chk "$(evnum "(function(){return globalThis._seeded;})()")" "28" "loader seeded all 28 corpus items into the daemon via SubmitItem"
+
+    # read history back and prove a REAL image landed (mime image/png, no content_text,
+    # has_thumbnail true once the daemon decoded the real PNG) — the binary path ran.
+    for i in $(seq 1 60); do
+      nested_eval "(function(){var P=$LU._proxy;globalThis._H=null;P.GetHistoryAsync(0,100).then(function(r){globalThis._H=JSON.parse(r[0]);},function(){globalThis._H=[];});return 1;})()" >/dev/null 2>&1
+      sleep 0.15
+      [ "$(evnum "(function(){return (globalThis._H&&_H.length>=10)?1:0;})()")" = "1" ] && break
+    done
+    chk "$(evnum "(function(){return (globalThis._H&&_H.length>0)?1:0;})()")" "1" "daemon returned the seeded corpus history"
+    chk "$(evnum "(function(){return (globalThis._H&&_H.some(function(m){return m.mime_type==='image/png';}))?1:0;})()")" "1" "a REAL image/png item is stored in the daemon (binary SubmitItem path exercised)"
+    chk "$(evnum "(function(){return (globalThis._H&&_H.some(function(m){return m.mime_type==='image/png'&&m.has_thumbnail;}))?1:0;})()")" "1" "the daemon decoded the real PNG and produced a thumbnail"
+    # IMAGE PASTE-BACK IS NOT ASSERTED HERE: pushing a real image through full paste-back
+    # exposes the known 'No compatible transfer format found' bug — a separate slice.
+    # This case asserts image RENDERING + storage only; see claude-progress.txt follow-up.
+    ;;
+
   *) echo "  note: no feature-specific checks for $ID (generic only)";;
 esac
 

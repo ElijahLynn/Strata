@@ -314,6 +314,30 @@
         "AGENTS.md"
       ],
       "passes": true
+    },
+    {
+      "id": "016",
+      "title": "Test clipboard corpus (3 of each claimed type)",
+      "category": "infrastructure",
+      "description": "Every verify case rolls its own inline, almost-all-TEXT stub; there is no shared corpus and no case ever loads a REAL image — which is exactly why the image paste-back bug shipped (the binary path was never exercised). Build one reusable corpus of realistic clipboard items — 3 of EACH claimed type, with REAL bytes — plus a loader the cases share. 'Claimed types' are taken FROM THE SOURCE, not invented: the union of docs/reference/strata-daemon-dbus-contract.md ('Supported MIME'), strata@edu4rdshl.dev/extension.js _pickMime PREFERRED allowlist, and the cardTypes extension/ui/card.js classify() renders (image, file, link, color, text). The corpus covers plain text, html, rtf, markdown, file (text/uri-list + gnome-copied-files), raster images (REAL small PNG bytes plus jpeg/gif/bmp/webp), the link regex card (real URLs) and the color regex card (real #hex). The loader seeds the corpus into the throwaway daemon via SubmitItem (preferred — exercises capture + storage + thumbnailing, including the real binary image path) or stubs the shelf's _fetchPage seam with it.",
+      "steps": [
+        "test-harness/corpus/ holds 3 realistic items of each claimed type with REAL bytes: real small PNGs (and jpeg/gif/bmp/webp), real text/uri-list and gnome-copied-files, real html/rtf/markdown/plain-text, 3 real URLs, 3 real #hex colors, described by manifest.json (file, mime, expected cardType)",
+        "test-harness/corpus/loader.js exposes a loader callable from verify cases: seedViaSubmit(baseDir, proxy, cb) pushes each item's raw bytes into the daemon via SubmitItem (images go through the binary ay path), and stubFetchPage(shelf, baseDir) builds ItemMeta[] from the corpus and overrides the shelf seam for daemon-free classification/render asserts",
+        "TEST FIRST: verify.sh case 016 loads the corpus and asserts each type classifies to the correct cardType and renders its type-specific body — image -> thumbnail container, file -> filename, link -> hostname subtitle, color -> swatch, text (incl. html/rtf/markdown) -> St.Label — and that real PNG bytes (\\x89PNG magic) reach the daemon via SubmitItem. RED before the corpus/loader exists, GREEN after",
+        "TEETH: breaking a renderer or the loader turns case 016 RED; restoring it returns green",
+        "Image paste-back is NOT asserted here: pushing a REAL image through full paste-back exposes the known image-paste bug ('No compatible transfer format found'), which is a separate slice — case 016 asserts image RENDERING only and records the image-paste gap as a follow-up"
+      ],
+      "blockedBy": [
+        "002",
+        "007"
+      ],
+      "refs": [
+        "reference/strata-daemon-dbus-contract.md",
+        "strata@edu4rdshl.dev/extension.js (_pickMime)",
+        "extension/ui/card.js (classify)",
+        "test-harness/verify.sh"
+      ],
+      "passes": true
     }
   ]
 }
