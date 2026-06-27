@@ -38,7 +38,7 @@ nested_down                          # kill + clean
 Autonomous build loop — `loop.sh` gives each feature a fresh-context agent, capped so a feature
 that never passes can't spin (and spend) forever:
 ```sh
-cd strata-ui && bash test-harness/loop.sh    # cap 20; `loop.sh 50` raises it, `loop.sh 1` = one iteration
+cd strata-ui && ./test-harness/loop.sh    # cap 20; `loop.sh 50` raises it, `loop.sh 1` = one iteration
 ```
 That is exactly this loop, by hand (no cap — don't leave it unattended):
 ```bash

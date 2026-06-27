@@ -60,7 +60,7 @@ itself, spending the context and the loop run the human had reserved.
 
 ## Running the loop
 
-`bash test-harness/loop.sh` IS the loop — run it from `strata-ui/`. It re-spawns a
+`./test-harness/loop.sh` IS the loop — run it from `strata-ui/`. It re-spawns a
 fresh coding agent per iteration until every feature is `passes:true`, or a
 max-iterations cap is hit (default 20; `loop.sh 50` raises it, `loop.sh 1` does a
 single iteration). Two layers:
