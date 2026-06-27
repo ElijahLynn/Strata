@@ -643,6 +643,24 @@ case "$ID" in
       return (sig(f)!==sig(u))?1:0;})()"
     chk "$(evnum "$visdelta")" "1" "the focused card looks VISIBLY different from an unfocused one (real CSS delta, not just key focus)"
 
+    # WHOLE-CARD FILL (the re-opened live bug): the LIVE highlight was only on the
+    # card's LEFT/RIGHT sides — the outline/border got clipped where the card sits
+    # flush with the band top/bottom, so the selection never read as the whole card.
+    # An outline+border-only style passes the delta above (sides-only signal) while
+    # looking broken live. So assert SPECIFICALLY that the focused card's computed
+    # BACKGROUND differs from an unfocused card's: a fill that cannot be clipped at the
+    # band edges. Removing the background tint (leaving outline/border) must turn THIS
+    # red even though the sides-only delta above would still pass. (Comparing the
+    # premultiplied colour is enough — a transparent vs. tinted background differs in
+    # alpha and/or channels.)
+    bgdelta="(function(){
+      function bg(card){var c=card.get_theme_node().get_background_color();
+        return [c.red,c.green,c.blue,c.alpha].join(',');}
+      var f=$LU._shelf._cardBox.get_first_child();
+      var u=$LU._shelf._cardBox.get_children()[3];   // an unfocused, off-to-the-right card
+      return (bg(f)!==bg(u))?1:0;})()"
+    chk "$(evnum "$bgdelta")" "1" "the focused card's BACKGROUND fills the whole card (computed background differs from an unfocused card — not just the outline/border sides)"
+
     nested_key Right; sleep 0.3
     chk "$(focuseq "$LU._shelf._cardBox.get_children()[1]")" "1" "Right moves focus to the next card"
 

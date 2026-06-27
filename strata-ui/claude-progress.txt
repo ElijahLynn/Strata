@@ -680,3 +680,28 @@ smoke-test in a live session per each feature's `steps`.
   (extensions can't be fully verified headlessly); the per-feature `steps` are the
   checklist. v2 backlog: edit-in-place, crisp big-image Peek, pins, fuzzy search.
 
+
+2026-06-27T21:58:46Z — starting 011 (re-open): whole-card focus highlight (live bug: highlight only on the card sides)
+2026-06-27T22:03:38Z — 011 RE-OPENED + fixed: whole-card focus highlight (was only the sides).
+  Honest re-open: 011 had passed while still broken LIVE. Nav worked (focus moves +
+  scrolls) and an earlier fix gave .strata-card-focused a 3px outline + 2px border to
+  beat the light-theme specificity — but live the user saw the highlight ONLY on the
+  card's LEFT/RIGHT sides: where a card sits flush with the band top/bottom the
+  outline/border were clipped, so the selection never read as the WHOLE card.
+  Root cause of the missing FILL: .strata-theme-light/dark .strata-card-focused (the
+  per-theme background tints, specificity 0,2,0) were declared BEFORE
+  .strata-theme-* .strata-card (also 0,2,0), so the equal-specificity tie broke on
+  source order in favour of the PLAIN card background — the focused background-color
+  silently reverted to the unfocused fill (computed bg of focused == unfocused).
+  Fix (extension/stylesheet.css): made the focus highlight a whole-card BACKGROUND
+  fill that can't be clipped at the band edges — bumped the tint (rgba .32-.34) and
+  MOVED the per-theme .strata-card-focused rules to AFTER .strata-theme-* .strata-card
+  so they win the source-order tie; kept the outline/border as secondary edge
+  emphasis and brightened focused card text for readability.
+  Test (verify.sh case 011): added a dedicated assertion that the focused card's
+  COMPUTED background differs from an unfocused card's (the whole-card fill signal),
+  in ADDITION to the existing move/scroll/visible-delta asserts. RED on the old
+  outline-only CSS (computed bg of focused == unfocused). TEETH: removing ONLY the
+  background tint (outline/border kept) turns case 011 RED while the old sides-only
+  "looks different" delta still passes — the fill is the point; restore -> GREEN.
+  verify.sh all -> ALL GREEN (001-016). 004/005/006 re-verified.

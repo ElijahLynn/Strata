@@ -57,28 +57,32 @@
   background-color: rgba(255, 255, 255, 0.09);
 }
 /* Keyboard-selected card (Left/Right nav, feature 011). It MUST read as clearly
- * selected — navigation is invisible otherwise. Colour alone is unreliable: the
- * default theme (and the `.strata-theme-light .strata-card` rule, two classes)
- * out-specifies this single-class rule for background/border-color, so on a light
- * desktop a colour-only focus style is a silent no-op. So we lead with an OUTLINE
- * plus a thicker border — properties the theme rules don't set, which this rule
- * always wins — and keep the blue tint where it does apply. */
+ * selected, as the WHOLE card — navigation is invisible otherwise.
+ *
+ * Two earlier traps this rule has to dodge:
+ *   1) Colour alone is out-specified: the per-theme `.strata-theme-* .strata-card`
+ *      rules are two classes (specificity 0,2,0) and beat a single-class
+ *      `.strata-card-focused` (0,1,0) on background/border-color. So the per-theme
+ *      focused tints below are also two-class (0,2,0) AND live LATER in the file
+ *      than `.strata-theme-* .strata-card`, so they win the equal-specificity tie on
+ *      source order. (The previous version put them BEFORE, so the plain-card
+ *      background won the cascade back and the fill silently vanished — that is the
+ *      whole-card half of the live bug.)
+ *   2) An outline + thick border is a SIDES-only signal: where a card sits flush with
+ *      the band's top/bottom the outline/border is clipped, so the user saw the
+ *      highlight only on the left/right edges. A BACKGROUND fill can't be clipped at
+ *      the band edges, so the fill — not the outline — is the primary selection cue.
+ *      The outline/border stay as secondary emphasis. */
 .strata-card-focused {
+  background-color: rgba(120, 170, 255, 0.34);
   outline: 3px solid rgb(120, 170, 255);
   outline-offset: -1px;
   border-width: 2px;
   border-color: rgb(120, 170, 255);
-  background-color: rgba(120, 170, 255, 0.22);
 }
-/* Per-theme tint, matched in specificity so it wins over `.strata-theme-* .strata-card`. */
-.strata-theme-dark .strata-card-focused {
-  background-color: rgba(120, 170, 255, 0.22);
-  border-color: rgb(120, 170, 255);
-}
-.strata-theme-light .strata-card-focused {
-  background-color: rgba(60, 120, 230, 0.20);
-  border-color: rgb(60, 120, 230);
-  outline-color: rgb(60, 120, 230);
+.strata-card-focused .strata-card-text,
+.strata-card-focused .strata-card-file-name {
+  color: rgba(255, 255, 255, 0.98);
 }
 .strata-card-body {
   padding: 14px;
@@ -194,4 +198,29 @@
 }
 .strata-theme-light .strata-card-subtitle {
   color: rgba(0, 0, 0, 0.5);
+}
+
+/* ── Focus highlight, per theme (011) ───────────────────────────────────────
+   Two-class (specificity 0,2,0) so they MATCH `.strata-theme-* .strata-card`, and
+   declared AFTER it so the equal-specificity tie breaks in the focused rule's
+   favour (source order). The BACKGROUND fill is the whole-card selection cue that
+   can't be clipped at the band's top/bottom edges; the outline/border are the
+   secondary edge emphasis. Keep card text readable on the tint. */
+.strata-theme-dark .strata-card-focused {
+  background-color: rgba(120, 170, 255, 0.34);
+  border-color: rgb(120, 170, 255);
+  outline-color: rgb(120, 170, 255);
+}
+.strata-theme-dark .strata-card-focused .strata-card-text,
+.strata-theme-dark .strata-card-focused .strata-card-file-name {
+  color: rgba(255, 255, 255, 0.98);
+}
+.strata-theme-light .strata-card-focused {
+  background-color: rgba(60, 120, 230, 0.32);
+  border-color: rgb(60, 120, 230);
+  outline-color: rgb(60, 120, 230);
+}
+.strata-theme-light .strata-card-focused .strata-card-text,
+.strata-theme-light .strata-card-focused .strata-card-file-name {
+  color: rgba(0, 0, 0, 0.92);
 }
