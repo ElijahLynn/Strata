@@ -549,6 +549,28 @@
         "ADR-0007"
       ],
       "passes": false
+    },
+    {
+      "id": "027",
+      "title": "Entering the shelf from search lands on AND highlights the true first card",
+      "category": "bugfix",
+      "description": "Live symptom (user, pre-relog): the first card (a normal Text card whose content is the word more) is skipped by arrow navigation — coming from the search box the highlight appears to jump to card #2, and the first card never shows the whole-card focus highlight; stepping Left toward it lands back in the search box instead of highlighting it. STATIC FINDING: in the merged code moveFocus() (shelf.js) already enters the shelf at cards[0] and _cardBox holds only cards (no non-card child at index 0), and key-focus-in adds .strata-card-focused to every card — so the merged nav logic looks correct. Likely causes to PROVE with a reproducing test: (a) stale live code (a relog may already fix it), or (b) the search St.Entry ClutterText consuming the first Left/Right arrow (cursor movement) so the visor capture handler only enters the shelf on the second press — making card #1 look skipped. With slice 023 routing typing into search, the entry frequently holds text. DO NOT BUILD until 025 has landed (this is the same focus/nav code 025 rewrites; build on top of the merged 025).",
+      "steps": [
+        "TEST FIRST (reproduce): with a non-empty shelf and focus in the search box (optionally with text typed in it), a single Right enters the shelf and the TRUE first card (cards[0]) both holds key focus AND carries .strata-card-focused — it is not skipped",
+        "From the second card, a single Left moves focus to and highlights the first card; only a Left FROM the first card returns to the search box (no skipping the first card)",
+        "If the reproduction shows the search entry eating the first arrow, intercept Left/Right for shelf entry in the visor capture-phase handler BEFORE the entry consumes them (consistent with how 023 routes keys), so the first press always enters the shelf at cards[0]",
+        "Regression: 011 nav, 023 type-on-card->search, and 025 focus-on-open all still pass; teeth-proven (the reproducing assertion goes RED on the broken path and GREEN after the fix)"
+      ],
+      "blockedBy": [
+        "011",
+        "023",
+        "025"
+      ],
+      "refs": [
+        "v1-spec.md",
+        "ADR-0004"
+      ],
+      "passes": false
     }
   ]
 }
