@@ -4,17 +4,17 @@ Harness: https://www.anthropic.com/engineering/effective-harnesses-for-long-runn
 
 ────────────────────────────────────────────────────────────────────────
 2026-06-27 — Headless test harness proven
-- harness/launch-nested.sh: reusable throwaway headless GNOME Shell
+- test-harness/launch-nested.sh: reusable throwaway headless GNOME Shell
   (gnome-shell --headless --virtual-monitor WxH --wayland) on its own temp XDG profile +
   private bus. Driver fns: nested_up / nested_eval / nested_key / nested_type /
   nested_screenshot / nested_enable_ext / nested_down.
-- harness/test-ext/strata-harness@local: helper that flips unsafe_mode in the nested session
+- test-harness/test-ext/strata-harness@local: helper that flips unsafe_mode in the nested session
   ONLY (user-authorized), unlocking org.gnome.Shell.Eval (drive/keystroke) + Screenshot.
 - PROVEN: `launch-nested.sh --smoke` brings the shell up and captures a 1280x720 PNG over D-Bus.
   Key gotcha solved: MUTTER_DEBUG_DUMMY_MODE_SPECS is ignored on GNOME>=49 (0x0 stage); use
   --headless --virtual-monitor WxH for a real framebuffer.
 - loop.sh now runs the coding agent with --dangerously-skip-permissions (autonomous).
-- NEXT: harness/verify.sh <feature> (nested_up -> drive -> screenshot -> assert -> pass/fail),
+- NEXT: test-harness/verify.sh <feature> (nested_up -> drive -> screenshot -> assert -> pass/fail),
   then rewire loop.sh: implement -> verify -> flip passes -> commit. verify.sh can be written
   against feature 001 once the extension exists.
 ────────────────────────────────────────────────────────────────────────
@@ -25,7 +25,7 @@ Harness: https://www.anthropic.com/engineering/effective-harnesses-for-long-runn
 - Feature list: docs/tasks.json — 9 tracer-bullet vertical slices, in the Anthropic
   long-running-agent feature-list schema (category/description/steps/passes) extended
   with id/blockedBy/refs. All passes=false.
-- Harness: harness/init.sh (live-reload install + prereq check), harness/loop.sh
+- Harness: test-harness/init.sh (live-reload install + prereq check), test-harness/loop.sh
   (implements the next ready feature via a fresh `claude` agent, then prints manual
   test steps).
 - Repo: branch `strata-ui` in fork ElijahLynn/Strata; code lives in strata-ui/
