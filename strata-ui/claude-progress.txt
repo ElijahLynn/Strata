@@ -1,0 +1,24 @@
+Strata UI — progress log
+Newest entries on top. Each coding session appends what it did + how to verify.
+Harness: https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents
+
+────────────────────────────────────────────────────────────────────────
+2026-06-27 — Initializer
+- Design complete: docs/v1-spec.md, docs/adr/0001-0007, CONTEXT.md glossary,
+  docs/reference/* (borrow-map, architecture-constraints, daemon D-Bus contract,
+  copyous good-parts, screenshots).
+- Feature list: docs/tasks.json — 9 tracer-bullet vertical slices, in the Anthropic
+  long-running-agent feature-list schema (category/description/steps/passes) extended
+  with id/blockedBy/refs. All passes=false.
+- Harness: harness/init.sh (live-reload install + prereq check), harness/loop.sh
+  (implements the next ready feature via a fresh `claude` agent, then prints manual
+  test steps).
+- Repo: branch `strata-ui` in fork ElijahLynn/Strata; code lives in strata-ui/
+  (ADR-0002). Daemon unchanged (ADR-0003).
+- NEXT ready: feature 001 "Empty visor" (no blockers).
+
+CAVEAT — passes flips are MANUAL: GNOME Shell extensions can't be verified
+headlessly. The loop implements + static-checks + commits a feature, but a human
+must test it in a live GNOME session (steps live in each feature's `steps`) before
+setting passes=true.
+────────────────────────────────────────────────────────────────────────
