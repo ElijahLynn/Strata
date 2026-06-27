@@ -502,6 +502,26 @@
         "v1-spec.md"
       ],
       "passes": false
+    },
+    {
+      "id": "025",
+      "title": "Visor opens with the first card highlighted (not the search box)",
+      "category": "functional",
+      "description": "When the visor opens, keyboard focus lands on the first (most-recent) card, shown with the whole-card highlight, rather than on the search box. The user can Left/Right immediately and type to refine search (routing handled by slice 023; Up returns to search per 023). If the history is empty, focus falls back to the search box. DO NOT BUILD until directed.",
+      "steps": [
+        "On visor open, set key focus to the first card and apply the whole-card focus highlight, not the search entry",
+        "Left/Right navigation works immediately on open; typing routes to search (per 023); Up returns to search (per 023)",
+        "If there are no cards, focus falls back to the search box",
+        "TEST: open the visor with a non-empty corpus and assert the first card has key focus and the focused-highlight class; open with an empty corpus and assert focus is the search box; teeth-proven"
+      ],
+      "blockedBy": [
+        "011",
+        "023"
+      ],
+      "refs": [
+        "v1-spec.md"
+      ],
+      "passes": false
     }
   ]
 }
