@@ -39,9 +39,12 @@ Autonomous build loop — one agent works `tasks.json` top to bottom, verifying 
 ```sh
 claude --print "$(cat test-harness/coding-prompt.md)" --dangerously-skip-permissions
 ```
-At larger scale, give each feature a fresh context (outer loop) instead:
-```sh
+At larger scale, give each feature a fresh context (outer loop) instead — **bash**, capped so a
+feature that never passes can't spin forever:
+```bash
+max=20; n=0
 while jq --exit-status '.features[]|select(.passes==false)' docs/tasks.json >/dev/null; do
+  n=$((n + 1)); [ "$n" -gt "$max" ] && { echo "stopped at max-iterations $max"; break; }
   cat test-harness/coding-prompt.md | claude --print --dangerously-skip-permissions
 done
 ```
