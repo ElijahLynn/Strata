@@ -257,7 +257,7 @@
         "reference/strata-daemon-dbus-contract.md",
         "strata@edu4rdshl.dev/ui/panel.js (_onItemActivated/_writeToClipboard)"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "013",

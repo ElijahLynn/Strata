@@ -617,6 +617,87 @@ case "$ID" in
     chk "$(focuseq "$LU._searchEntry.get_clutter_text()")" "1" "Left off the first card returns focus to search"
     ;;
 
+  012)
+    LU="Main.extensionManager.lookup('$UUID').stateObj"
+    # --- end-to-end paste-back: REAL daemon items, activate a NON-top card, read
+    #     back the REAL nested-session clipboard. The 005 test only asserted the
+    #     internal _lastWrite, so the live "pasted the most-recent entry" race went
+    #     unseen. Here the clipboard write must complete BEFORE the visor dismisses;
+    #     otherwise a paste landing in the gap grabs the top-of-history entry. ---
+
+    # wait for the daemon proxy to come up (real GetItemContent path, not a stub)
+    for i in $(seq 1 40); do
+      [ "$(evnum "(function(){return ($LU._proxy&&$LU._proxy.SubmitItemRemote)?1:0;})()")" = "1" ] && break; sleep 0.1
+    done
+    chk "$(evnum "(function(){return ($LU._proxy&&$LU._proxy.SubmitItemRemote)?1:0;})()")" "1" "daemon D-Bus proxy is ready"
+
+    # seed the (isolated, throwaway) daemon with 4 known text items A<B<C<D by age,
+    # so newest-first history is D,C,B,A. Capture is off so paste-back is isolated.
+    nested_eval "(function(){
+      var e=$LU, P=e._proxy, G=imports.gi.GLib;
+      e._disconnectClipboardMonitor();
+      globalThis._setup=0;
+      P.ClearHistoryRemote(function(){
+        var Ls=['A','B','C','D'];
+        (function sub(i){
+          if(i>=Ls.length){ globalThis._setup=1; return; }
+          var b=new TextEncoder().encode('STRATA012-'+Ls[i]);
+          P.SubmitItemRemote('text/plain', b, function(){
+            G.timeout_add(G.PRIORITY_DEFAULT,150,function(){ sub(i+1); return false; });
+          });
+        })(0);
+      });
+      return 1;
+    })()" >/dev/null 2>&1
+    for i in $(seq 1 50); do [ "$(evnum "(function(){return globalThis._setup;})()")" = "1" ] && break; sleep 0.1; done
+
+    # poll until the daemon has committed all 4 (SubmitItem is fire-and-forget) and
+    # snapshot the newest-first order into globalThis._h
+    pollhist(){ for i in $(seq 1 50); do
+      nested_eval "(function(){var P=$LU._proxy;globalThis._h=null;P.GetHistoryAsync(0,50).then(function(r){globalThis._h=JSON.parse(r[0]);},function(){globalThis._h=[];});return 1;})()" >/dev/null 2>&1
+      sleep 0.15
+      [ "$(evnum "(function(){return (globalThis._h&&_h.length>=4)?1:0;})()")" = "1" ] && return 0
+    done; return 1; }
+    pollhist || { echo "  FAIL: daemon never returned the 4 seeded items"; fail=1; }
+    chk "$(evnum "(function(){return (globalThis._h&&_h.length>=4)?1:0;})()")" "1" "real daemon returned the 4 seeded items"
+    chk "$(evnum "(function(){return (globalThis._h&&_h[0].content_text==='STRATA012-D')?1:0;})()")" "1" "history is newest-first (top = last submitted, D)"
+    chk "$(evnum "(function(){return (globalThis._h&&_h[2].content_text==='STRATA012-B')?1:0;})()")" "1" "the non-top target (index 2) is the older B"
+
+    # open browse so the real history renders into cards
+    nested_eval "(function(){ $LU._showVisor(); return 1; })()" >/dev/null 2>&1
+    sleep 1.0
+
+    # instrument the ORDER of (clipboard write) vs (dismiss), drop a sentinel on the
+    # real clipboard, then activate the NON-top card B
+    nested_eval "(function(){
+      var e=$LU, sh=e._shelf, St=imports.gi.St;
+      globalThis._seq=[];
+      globalThis._target=globalThis._h[2];          // STRATA012-B, NOT the top
+      var ow=sh._writeClipboard.bind(sh);
+      sh._writeClipboard=function(m,b){ globalThis._seq.push('write'); return ow(m,b); };
+      var op=sh._onPick;
+      sh._onPick=function(){ globalThis._seq.push('dismiss'); return op&&op(); };
+      St.Clipboard.get_default().set_text(St.ClipboardType.CLIPBOARD,'SENTINEL-NOPE');
+      var card=sh._cards.get(globalThis._target.id);
+      globalThis._hadcard=card?1:0;
+      if(card) sh.activate(card);
+      return globalThis._hadcard;
+    })()" >/dev/null 2>&1
+    sleep 0.8
+    chk "$(evnum "(function(){return globalThis._hadcard;})()")" "1" "the non-top card B is present to activate"
+
+    # the live bug: paste-back fires un-awaited and the visor dismisses first, so the
+    # clipboard is still the old value during the window a paste would land. The
+    # write MUST precede the dismiss.
+    chk "$(evnum "(function(){var s=globalThis._seq;return (s.length>=2&&s[0]==='write')?1:0;})()")" "1" "clipboard is written BEFORE the visor dismisses (no paste-the-most-recent race)"
+
+    # end-to-end: the REAL system clipboard now holds the CHOSEN entry, not the top
+    nested_eval "(function(){var St=imports.gi.St;globalThis._clip='<unread>';St.Clipboard.get_default().get_text(St.ClipboardType.CLIPBOARD,function(c,t){globalThis._clip=t;});return 1;})()" >/dev/null 2>&1
+    sleep 0.4
+    chk "$(evnum "(function(){return (globalThis._clip===globalThis._target.content_text)?1:0;})()")" "1" "system clipboard holds the CHOSEN card's content (end-to-end read-back of B)"
+    chk "$(evnum "(function(){return (globalThis._clip===globalThis._h[0].content_text)?1:0;})()")" "0" "clipboard is NOT the most-recent entry (D)"
+    ;;
+
   *) echo "  note: no feature-specific checks for $ID (generic only)";;
 esac
 

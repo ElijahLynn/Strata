@@ -453,8 +453,14 @@ export class Shelf {
         this._picking = true; // guard against click+key double-fire
         if (this._settings?.get_boolean('move-activated-to-top'))
             this._cardBox?.set_child_at_index(card, 0);
-        this._pasteBack(card.strataId); // async; the copy completes in the background
-        this._onPick?.();               // dismiss now
+        // Write the chosen entry to the clipboard BEFORE dismissing (feature 012),
+        // matching the known-good original (panel.js _onItemActivated). Firing
+        // paste-back un-awaited and dismissing immediately left the OLD clipboard
+        // value in place during the window a paste would land — so a paste right
+        // after the visor closed grabbed the most-recent entry, not the chosen one.
+        // _pasteBack never rejects (it catches internally); .finally still dismisses
+        // if GetItemContent fails so the visor never gets stuck open.
+        this._pasteBack(card.strataId).finally(() => this._onPick?.());
     }
 
     /** Seam: fetch an item's full content from the daemon — GetItemContent(id)

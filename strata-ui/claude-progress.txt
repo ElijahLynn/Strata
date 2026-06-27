@@ -5,6 +5,38 @@ Entries are headed with a UTC ISO-8601 timestamp (YYYY-MM-DDThh:mm:ssZ, from
 Harness: https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents
 
 ────────────────────────────────────────────────────────────────────────
+2026-06-27T17:14:00Z — 012: Paste-back writes the chosen entry, end-to-end (TDD red→green)
+- Live bug: choosing a card pasted the MOST-RECENT entry, not the chosen one. The
+  005 test only asserted the internal _lastWrite, so it never saw the real clipboard
+  and the regression passed headlessly. Root cause: shelf.js activate() fired
+  _pasteBack(id) UN-AWAITED and called _onPick() (dismiss) immediately. The async
+  GetItemContent round-trip then wrote the clipboard AFTER the visor closed — so a
+  paste landing in that window grabbed whatever was already on the clipboard (the
+  most-recent copy), not the chosen entry. The known-good original (panel.js
+  _onItemActivated) writes the clipboard BEFORE closing.
+- Fix (shelf.js): activate() now `this._pasteBack(id).finally(() => this._onPick?.())`
+  — write the chosen entry THEN dismiss. _pasteBack catches internally (never
+  rejects); .finally still dismisses if GetItemContent fails, so the visor can't
+  stick open. Costs one D-Bus round-trip before the visor hides (a few ms), matching
+  the original's ordering.
+- TEST FIRST (verify.sh case 012, fully end-to-end, REAL daemon — not stubs):
+  the nested shell runs under dbus-run-session with XDG_* redirected to a throwaway
+  tmp, so its strata-daemon is isolated with a fresh empty DB (ClearHistory/SubmitItem
+  there never touch the user's real history). The case ClearHistory's, SubmitItem's 4
+  known text items A<B<C<D by age (newest-first D,C,B,A), opens browse so the real
+  history renders, then activates the NON-top card B and (a) records the order of the
+  real clipboard write vs the dismiss and (b) reads the REAL nested-session clipboard
+  (St.Clipboard.get_text). RED: _seq[0]==='dismiss' (write landed after the visor
+  closed) even though the value eventually settled to B. GREEN after the fix:
+  _seq[0]==='write', clipboard == B (the chosen card), and != D (the most-recent).
+  Capture is disabled during the test to isolate paste-back. Full suite 001-012 green.
+- Run: bash test-harness/verify.sh 012   (suite: bash test-harness/verify.sh all)
+- NEXT: 013 gear opens prefs (live; real OpenExtensionPrefs path), 014 install docs.
+
+────────────────────────────────────────────────────────────────────────
+2026-06-27T17:03:32Z — starting 012: Paste-back writes the chosen entry (end-to-end)
+
+────────────────────────────────────────────────────────────────────────
 2026-06-27T16:21:41Z — 011: Keyboard navigation across the shelf (TDD red→green)
 - Live bug: Left/Right did nothing — focus stayed stuck in the search box. Cause:
   the search St.Entry's ClutterText consumes the arrow keys for its text cursor in
