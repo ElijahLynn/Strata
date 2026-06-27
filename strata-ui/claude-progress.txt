@@ -5,6 +5,29 @@ Entries are headed with a UTC ISO-8601 timestamp (YYYY-MM-DDThh:mm:ssZ, from
 Harness: https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents
 
 ────────────────────────────────────────────────────────────────────────
+2026-06-27T17:38:00Z — 014: Install docs: one Strata extension at a time (TDD red→green)
+- install.sh now steers the user to run exactly ONE Strata extension. Running both
+  strata@edu4rdshl.dev and strata-ui@elijahlynn.net makes them fight over daemon
+  supervision, the Ctrl+Alt+C binding, and clipboard capture.
+- install.sh (test-harness/install.sh): if strata@edu4rdshl.dev is currently
+  enabled (gnome-extensions list --enabled), prints a conflict WARNING. Then prints
+  ordered steps: (1) on Wayland log out/in first — a brand-new extension can't be
+  enabled until the shell re-reads the extensions dir; (2) gnome-extensions disable
+  strata@edu4rdshl.dev; (3) gnome-extensions enable strata-ui@elijahlynn.net;
+  (4) Ctrl+Alt+C to toggle. Literal commands so the docs (and the test) are exact.
+- TEST FIRST (verify.sh case 014, static on install.sh): asserts it tells you to
+  DISABLE strata@edu4rdshl.dev and ENABLE strata-ui@elijahlynn.net, that the
+  log-out/in note precedes disable which precedes enable (awk line-order), that it
+  inspects the enabled extensions (list --enabled) and warns about the conflict, and
+  keeps Ctrl+Alt+C. RED before (the old install.sh only printed an enable one-liner);
+  GREEN after. Full suite 001-014 green.
+- Run: bash test-harness/verify.sh 014   (suite: bash test-harness/verify.sh all)
+- NEXT: all v1-mvp features now pass (001-015). Milestone complete — see tasks.json.
+
+────────────────────────────────────────────────────────────────────────
+2026-06-27T17:31:00Z — starting 014: Install docs: one Strata extension at a time
+
+────────────────────────────────────────────────────────────────────────
 2026-06-27T17:30:00Z — 013: Gear opens the preferences window (live) (TDD red→green)
 - Investigated the suspected Adw incompatibility FIRST and it did NOT reproduce:
   running GNOME is Shell 50.1 / libadwaita 1.9.0, and every Adw widget prefs.js

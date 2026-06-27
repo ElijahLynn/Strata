@@ -741,6 +741,27 @@ case "$ID" in
     fi
     ;;
 
+  014)
+    # --- static: install.sh must steer the user to run ONE Strata extension. Two
+    #     enabled at once fight over daemon supervision, Ctrl+Alt+C, and capture. ---
+    INS="$HARNESS/install.sh"
+    chk "$([ -f "$INS" ] && echo y || echo n)" "y" "install.sh exists"
+    chk "$(grep -Eqs 'gnome-extensions disable strata@edu4rdshl\.dev'   "$INS" && echo y || echo n)" "y" "install.sh tells you to DISABLE strata@edu4rdshl.dev"
+    chk "$(grep -Eqs 'gnome-extensions enable strata-ui@elijahlynn\.net' "$INS" && echo y || echo n)" "y" "install.sh tells you to ENABLE strata-ui@elijahlynn.net"
+    chk "$(grep -Eiqs 'log ?out|log out/in|sign out' "$INS" && echo y || echo n)" "y" "install.sh says to log out/in (Wayland) for a brand-new extension"
+    chk "$(grep -qs 'Ctrl+Alt+C' "$INS" && echo y || echo n)" "y" "install.sh mentions Ctrl+Alt+C to toggle"
+    # ordering: log out/in  ->  disable old  ->  enable new
+    ord="$(awk '
+      /[Ll]og ?out|[Ss]ign out/      && !lo {lo=NR}
+      /disable strata@edu4rdshl\.dev/ && !di {di=NR}
+      /enable strata-ui@elijahlynn\.net/ && !en {en=NR}
+      END{ print (lo && di && en && lo<di && di<en) ? "y" : "n" }' "$INS")"
+    chk "$ord" "y" "ordered: log out/in, THEN disable the old, THEN enable Strata UI"
+    # conflict warning when the old extension is currently enabled
+    chk "$(grep -qs 'list --enabled' "$INS" && echo y || echo n)" "y" "install.sh inspects the currently-enabled extensions"
+    chk "$(grep -Eiqs 'conflict|both|fight' "$INS" && echo y || echo n)" "y" "install.sh warns about the two-extensions conflict"
+    ;;
+
   *) echo "  note: no feature-specific checks for $ID (generic only)";;
 esac
 

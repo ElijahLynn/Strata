@@ -28,10 +28,29 @@ command -v strata-daemon >/dev/null \
   && echo "strata-daemon: $(command -v strata-daemon)" \
   || echo "WARNING: strata-daemon not on PATH (build it in the Strata repo)."
 
-cat <<EOF
+# Run ONE Strata extension at a time. The original strata@edu4rdshl.dev and this
+# strata-ui@elijahlynn.net both supervise the daemon, bind Ctrl+Alt+C, and capture
+# the clipboard — enabling both makes them fight. Warn if the old one is on.
+if gnome-extensions list --enabled 2>/dev/null | grep --quiet '^strata@edu4rdshl.dev$'; then
+  cat <<'EOF'
 
-Installed. Try it:
-  Wayland: log out/in, then  gnome-extensions enable $UUID   (Ctrl+Alt+C to toggle)
-  Headless instead:          bash test-harness/launch-nested.sh --smoke
-  Logs:                      journalctl --user --follow --output cat | grep 'Strata UI'
+WARNING: strata@edu4rdshl.dev is currently ENABLED. Running both Strata
+extensions conflicts (daemon supervision, the Ctrl+Alt+C binding, clipboard
+capture). Disable it before enabling Strata UI — see the steps below.
+EOF
+fi
+
+cat <<'EOF'
+
+Installed. Enable exactly ONE Strata extension, in this order:
+
+  1. On Wayland, log out and back in first. A brand-new extension cannot be
+     enabled until the shell re-reads the extensions directory.
+  2. Disable the old extension:  gnome-extensions disable strata@edu4rdshl.dev
+  3. Enable Strata UI:           gnome-extensions enable strata-ui@elijahlynn.net
+       (or toggle both in the Extensions app)
+  4. Press Ctrl+Alt+C to toggle the visor.
+
+  Headless smoke test instead:  bash test-harness/launch-nested.sh --smoke
+  Logs:  journalctl --user --follow --output cat | grep 'Strata UI'
 EOF
