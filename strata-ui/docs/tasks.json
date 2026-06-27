@@ -484,6 +484,24 @@
         "ADR-0003"
       ],
       "passes": false
+    },
+    {
+      "id": "024",
+      "title": "Remove duplicate edge line on the focused card",
+      "category": "bugfix",
+      "description": "Slice 011 added a whole-card background fill for focus but KEPT the earlier outline + thick border as secondary edge emphasis. On screen that draws a second line on the cards left/right edges (the old sides-only highlight), so a focused card shows a duplicate/double line. Drop the redundant outline/border so focus is just the clean whole-card fill. DO NOT BUILD until directed.",
+      "steps": [
+        "A focused card shows a single clean highlight (the whole-card fill), with NO duplicate/double line on the sides",
+        "Remove the redundant .strata-card-focused outline + thick border (kept as secondary emphasis in 011) in both themes, leaving only the fill (or one intentional clean edge)",
+        "TEST: a focused cards computed style has the background fill AND does not add the extra outline/thick border that double-lines the edges (outline-width/border revert to unfocused, or a single intended edge); teeth-proven"
+      ],
+      "blockedBy": [
+        "011"
+      ],
+      "refs": [
+        "v1-spec.md"
+      ],
+      "passes": false
     }
   ]
 }
