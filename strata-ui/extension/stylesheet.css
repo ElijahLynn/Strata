@@ -1,0 +1,12 @@
+/* The full-screen modal layer is transparent; only the band is drawn. */
+.strata-visor-band {
+  background-color: rgba(28, 28, 34, 0.97);
+  border-top: 1px solid rgba(255, 255, 255, 0.10);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.10);
+}
+
+/* Placeholder shown in the empty v1 visor (removed once the shelf lands). */
+.strata-visor-placeholder {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 14px;
+}

@@ -1,0 +1,8 @@
+{
+  "name": "Strata UI",
+  "description": "Horizontal shelf clipboard UI for the Strata daemon — a Quake-style visor.",
+  "uuid": "strata-ui@elijahlynn.net",
+  "shell-version": ["48", "49", "50"],
+  "settings-schema": "org.gnome.shell.extensions.strata-ui",
+  "url": "https://github.com/ElijahLynn/Strata"
+}

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.strata-ui"
+          path="/org/gnome/shell/extensions/strata-ui/">
+
+    <key name="keyboard-shortcut" type="as">
+      <default><![CDATA[['<Control><Alt>c']]]></default>
+      <summary>Shortcut to toggle the Strata UI visor</summary>
+    </key>
+
+    <key name="visor-edge" type="s">
+      <choices>
+        <choice value="top"/>
+        <choice value="bottom"/>
+      </choices>
+      <default>'bottom'</default>
+      <summary>Screen edge the visor is anchored to</summary>
+    </key>
+
+    <key name="visor-height" type="i">
+      <default>360</default>
+      <range min="200" max="900"/>
+      <summary>Visor height in pixels</summary>
+    </key>
+
+  </schema>
+</schemalist>

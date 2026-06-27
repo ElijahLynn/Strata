@@ -16,8 +16,13 @@
         "The daemon is spawned if absent, supervised with exponential-backoff restart, and NOT double-spawned when a systemd instance already owns dev.edu4rdshl.Strata"
       ],
       "blockedBy": [],
-      "refs": ["ADR-0001", "ADR-0004", "reference/architecture-constraints.md", "v1-spec.md"],
-      "passes": false
+      "refs": [
+        "ADR-0001",
+        "ADR-0004",
+        "reference/architecture-constraints.md",
+        "v1-spec.md"
+      ],
+      "passes": true
     },
     {
       "id": "002",
@@ -30,8 +35,14 @@
         "Rows are inserted in idle_add batches (~20) so a page never freezes a frame",
         "Card text uses St.Label only (no set_markup)"
       ],
-      "blockedBy": ["001"],
-      "refs": ["reference/strata-daemon-dbus-contract.md", "reference/architecture-constraints.md", "v1-spec.md"],
+      "blockedBy": [
+        "001"
+      ],
+      "refs": [
+        "reference/strata-daemon-dbus-contract.md",
+        "reference/architecture-constraints.md",
+        "v1-spec.md"
+      ],
       "passes": false
     },
     {
@@ -45,8 +56,13 @@
         "Scrolling past off-screen image cards issues no D-Bus traffic for those rows",
         "On ItemDeleted, the cached thumbnail file is unlinked"
       ],
-      "blockedBy": ["002"],
-      "refs": ["reference/strata-daemon-dbus-contract.md", "reference/architecture-constraints.md"],
+      "blockedBy": [
+        "002"
+      ],
+      "refs": [
+        "reference/strata-daemon-dbus-contract.md",
+        "reference/architecture-constraints.md"
+      ],
       "passes": false
     },
     {
@@ -60,8 +76,14 @@
         "Empty query restores the recent-history browse view",
         "Results render through the same paged/idle_add mechanism as browse mode"
       ],
-      "blockedBy": ["002"],
-      "refs": ["reference/strata-daemon-dbus-contract.md", "v1-spec.md", "ADR-0003"],
+      "blockedBy": [
+        "002"
+      ],
+      "refs": [
+        "reference/strata-daemon-dbus-contract.md",
+        "v1-spec.md",
+        "ADR-0003"
+      ],
       "passes": false
     },
     {
@@ -76,8 +98,14 @@
         "No synthetic paste is ever sent to another app",
         "move-activated-to-top is honored when the setting is on"
       ],
-      "blockedBy": ["002"],
-      "refs": ["reference/strata-daemon-dbus-contract.md", "ADR-0005", "v1-spec.md"],
+      "blockedBy": [
+        "002"
+      ],
+      "refs": [
+        "reference/strata-daemon-dbus-contract.md",
+        "ADR-0005",
+        "v1-spec.md"
+      ],
       "passes": false
     },
     {
@@ -91,8 +119,15 @@
         "Space again or Escape dismisses the Peek back to the shelf",
         "Highlighting/decoding happens only for the single Peeked entry"
       ],
-      "blockedBy": ["002"],
-      "refs": ["ADR-0007", "ADR-0003", "reference/strata-daemon-dbus-contract.md", "v1-spec.md"],
+      "blockedBy": [
+        "002"
+      ],
+      "refs": [
+        "ADR-0007",
+        "ADR-0003",
+        "reference/strata-daemon-dbus-contract.md",
+        "v1-spec.md"
+      ],
       "passes": false
     },
     {
@@ -106,8 +141,14 @@
         "uri-list / copied-files entries render filename(s) with an icon",
         "Classification is cheap regex on the client; everything else stays a Text card"
       ],
-      "blockedBy": ["002"],
-      "refs": ["ADR-0007", "v1-spec.md", "reference/copyous-good-parts.md"],
+      "blockedBy": [
+        "002"
+      ],
+      "refs": [
+        "ADR-0007",
+        "v1-spec.md",
+        "reference/copyous-good-parts.md"
+      ],
       "passes": false
     },
     {
@@ -121,8 +162,14 @@
         "Changing visor-edge/height/card-width updates the visor live or on next open",
         "theme auto/light/dark applies via the class-toggle approach"
       ],
-      "blockedBy": ["001"],
-      "refs": ["v1-spec.md", "ADR-0004", "reference/architecture-constraints.md"],
+      "blockedBy": [
+        "001"
+      ],
+      "refs": [
+        "v1-spec.md",
+        "ADR-0004",
+        "reference/architecture-constraints.md"
+      ],
       "passes": false
     },
     {
@@ -135,8 +182,13 @@
         "ItemDeleted removes the card and unlinks its cached thumbnail",
         "HistoryCleared empties the shelf and wipes the thumbnail cache directory"
       ],
-      "blockedBy": ["002"],
-      "refs": ["reference/strata-daemon-dbus-contract.md", "reference/architecture-constraints.md"],
+      "blockedBy": [
+        "002"
+      ],
+      "refs": [
+        "reference/strata-daemon-dbus-contract.md",
+        "reference/architecture-constraints.md"
+      ],
       "passes": false
     }
   ]
