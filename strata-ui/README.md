@@ -15,10 +15,10 @@ vertical dropdown. It talks to the existing Strata daemon over D-Bus; the daemon
 
 ## Developing
 
-Install for real use (live reload, symlink):
+Install into your own session to try by hand (the loop doesn't need this):
 ```sh
-bash test-harness/init.sh        # links extension/ → ~/.local/share/.../extensions, compiles schemas
-# Wayland: log out/in to reload JS
+bash test-harness/install.sh     # symlinks extension/ → ~/.local/share/.../extensions, compiles schemas
+# Wayland: log out/in, then `gnome-extensions enable strata-ui@elijahlynn.net`, Ctrl+Alt+C
 ```
 
 Test it (headless nested shell, ~1.5s, never touches your clipboard):
@@ -35,10 +35,19 @@ nested_eval "global.context.unsafe_mode"
 nested_down                          # kill + clean
 ```
 
-Autonomous build loop (picks next not-done feature, `claude` builds it):
+Autonomous build loop — one agent works `tasks.json` top to bottom, verifying each feature:
 ```sh
-bash test-harness/loop.sh
+claude --print "$(cat test-harness/coding-prompt.md)" --dangerously-skip-permissions
 ```
+At larger scale, give each feature a fresh context (outer loop) instead:
+```sh
+while jq --exit-status '.features[]|select(.passes==false)' docs/tasks.json >/dev/null; do
+  cat test-harness/coding-prompt.md | claude --print --dangerously-skip-permissions
+done
+```
+Each session: pick next `passes:false` (deps met) → build in `extension/` → verify in the nested
+shell → flip `passes` → commit. Stops when all pass; Ctrl+C to pause, re-run to resume.
+(`test-harness/loop.sh` = one iteration of the above.)
 
 Needs: `mutter-devkit` (GNOME ≥49), `gnome-shell`, `gdbus`, `dbus-run-session`, `jq`, `sqlite3`.
 
