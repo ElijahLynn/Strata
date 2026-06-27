@@ -16,6 +16,7 @@ import Meta from 'gi://Meta';
 import St from 'gi://St';
 
 import { Card } from './card.js';
+import { Peek } from './peek.js';
 
 const RENDER_BATCH = 20;          // cards inserted per idle tick (paced rendering)
 const LOAD_MORE_THRESHOLD = 200;  // px from the end that triggers the next page
@@ -26,6 +27,7 @@ export class Shelf {
         this._proxy = proxy;
         this._settings = settings;
         this._onPick = opts.onPick ?? null; // called to dismiss after a copy
+        this._peekHost = opts.peekHost ?? null; // actor the Peek overlay lives in
 
         this._pageSize = settings.get_int('page-size');
         this._cardWidth = settings.get_int('card-width');
@@ -59,6 +61,13 @@ export class Shelf {
         this.renderStats = { batchSize: RENDER_BATCH, batches: 0, count: 0 };
 
         this._buildUI();
+
+        // Peek (feature 006): the single enlarged Card. It reuses the shelf's
+        // GetItemContent seam (so a test that stubs _fetchContent covers both
+        // paste-back and Peek) and overlays the host actor (the visor).
+        this._peek = new Peek(this._peekHost, {
+            fetchContent: id => this._fetchContent(id),
+        });
     }
 
     _buildUI() {
@@ -96,6 +105,8 @@ export class Shelf {
     /** (Re)load from the top. Called each time the visor opens, so a summon
      *  always shows current history. */
     load() {
+        // A fresh summon starts on the shelf, never mid-Peek.
+        this._peek?.close();
         // Entering browse mode: cancel any in-flight/pending search.
         this._query = '';
         this._searchEpoch++;
@@ -402,6 +413,23 @@ export class Shelf {
         }
     }
 
+    // -- Peek (feature 006, ADR-0007) ------------------------------------------
+
+    /** Enlarge a specific Card into the Peek overlay. */
+    peek(card) { this._peek?.open(card); }
+
+    /** Peek the focused Card. Returns false (so Space falls through to type a
+     *  space) when focus is still in the search box / on no card. */
+    peekFocused() {
+        const card = this._cardFromActor(global.stage.get_key_focus());
+        if (!card) return false;
+        this._peek?.open(card);
+        return true;
+    }
+
+    closePeek() { this._peek?.close(); }
+    isPeeking() { return !!this._peek?.visible; }
+
     /** Move key focus between cards (Left/Right), scrolling the target into view. */
     moveFocus(dir) {
         const cards = this._cardBox ? this._cardBox.get_children() : [];
@@ -455,6 +483,8 @@ export class Shelf {
         }
         this._adjIds = null;
         this._adj = null;
+        this._peek?.destroy();
+        this._peek = null;
         this._clear();
         this._scroll?.destroy();
         this._scroll = null;

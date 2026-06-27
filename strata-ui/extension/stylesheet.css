@@ -62,3 +62,24 @@
 .strata-card-thumb-placeholder {
   color: rgba(255, 255, 255, 0.35);
 }
+
+/* Peek (006): the single enlarged Card. Overlays the whole visor on Space. */
+.strata-peek {
+  background-color: rgba(10, 10, 14, 0.94);
+}
+.strata-peek-panel {
+  padding: 22px 26px;
+}
+.strata-peek-scroll {
+  padding: 0;
+}
+.strata-peek-text {
+  color: rgba(255, 255, 255, 0.95);
+  font-family: monospace;
+  font-size: 15px;
+}
+/* The full-resolution image fills the panel, letter-boxed (contain). */
+.strata-peek-image {
+  background-color: rgba(0, 0, 0, 0.35);
+  border-radius: 6px;
+}

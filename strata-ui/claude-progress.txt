@@ -3,6 +3,57 @@ Newest entries on top. Each coding session appends what it did + how to verify.
 Harness: https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents
 
 ────────────────────────────────────────────────────────────────────────
+2026-06-27 — starting 006: Peek (Space)
+2026-06-27 — 006: Peek (Space) (TDD red→green, verified headlessly)
+- NEW extension/ui/peek.js: the Peek overlay (a child of the visor, BinLayout,
+  shown on Space). open(card) fetches the FULL content via the shelf's
+  _fetchContent seam (GetItemContent) — the shelf only holds the ~200-char
+  preview — one entry, on keypress (the ADR-0007 / ADR-0003 "expensive on demand"
+  bargain). text/code → a scrollable St.Label (wrapped in a BoxLayout because a
+  ScrollView child must be St.Scrollable); image → the full-res blob written to
+  ~/.cache/strata/peek/<id>.<ext> and shown as a CSS background-image (decoded off
+  the shell thread by the loader, like thumbnails). Space-again / Escape / click
+  dismiss; an _epoch drops a stale async render; _rendered{kind,isCode,spanCount,
+  language} is the test observable; the temp image file is unlinked on close/destroy.
+- NEW extension/lib/highlight.js: a small dependency-free tokenizer (highlight.js
+  is the ADR-0007 reference, but it's a DOM/UMD bundle that emits HTML; we render
+  St.Label-only and must never markup-parse clipboard content). highlight(code)
+  returns typed tokens that TILE the source exactly; Peek maps token type→colour
+  and lays them down as Pango FOREGROUND attributes over UTF-8 byte ranges via
+  clutter_text.set_attributes — NOT set_markup. isCode is gated on structural
+  punctuation ({};, =>, def f(…) or ≥2 keywords + source symbols), so prose
+  ("…with nothing special…") isn't colorized just for containing a keyword.
+- shelf.js: owns the Peek (peekHost passed from extension.js = the visor), reuses
+  its own _fetchContent seam for it; peek(card)/peekFocused()/closePeek()/
+  isPeeking(); load() and destroy() tear any open Peek down.
+- extension.js: Space is handled in the CAPTURE phase (captured-event) so it
+  intercepts before the focused card's St.Button activates-on-Space (which would
+  copy). No card focused (focus in search) → Space falls through and types. While
+  peeking, Space/Escape dismiss the Peek and all other keys are swallowed (so
+  Escape closes the Peek, not the visor). _hideVisor() also closes any Peek.
+- TEST FIRST: verify.sh case 006 stubs _fetchPage + _fetchContent (code/prose/
+  image), asserts Space opens a Peek that decodes ONLY the peeked id, shows the
+  FULL content (a tail marker absent from the shelf preview), highlights code
+  (>1 span, language detected) but not prose (0 spans), the shelf card stays on
+  the cheap preview, an image Peek applies the full-res blob, focus gates Space
+  (search→type, card→Peek), and a REAL Escape closes the Peek while the visor
+  stays open. Statics: peek.js imports lib/highlight + uses set_attributes;
+  card.js never imports the highlighter; no set_markup anywhere. RED before impl,
+  GREEN after; 002/003/004/005 re-verified (no regression).
+- Gotchas solved: (1) ScrollView child must be St.Scrollable — wrap the label in
+  a BoxLayout (a bare St.Label throws "cannot convert to StScrollable"). (2) A
+  literal '\n' inside a JS string in a nested_eval does NOT survive gdbus/Eval
+  (collapses to a real line break → unterminated literal); build multi-line test
+  code with String.fromCharCode(10)+join. (3) St applies CSS color as a Pango
+  foreground attr, so a get_attributes() null/foreground check can't prove "not
+  highlighted" — assert the shelf card shows the preview text instead.
+- Caveat: Peek text renders top-left full-width (reads like an editor); visual
+  centering/polish is cosmetic and deferred. Functionally complete + headless-green.
+- Run: bash test-harness/verify.sh 006   (shot: test-harness/screenshots/006.png)
+- NEXT ready: 007 (typed cards) / 009 (live signals) — blockedBy 002✓;
+  008 (settings/prefs) blockedBy 001✓.
+
+────────────────────────────────────────────────────────────────────────
 2026-06-27 — 005: Select & copy-and-dismiss (TDD red→green, verified headlessly)
 - shelf.js: activate(card) copies + dismisses (ADR-0005, no auto-paste): optional
   move-to-top (set_child_at_index 0, gated by move-activated-to-top), then

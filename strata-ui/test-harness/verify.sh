@@ -255,6 +255,102 @@ case "$ID" in
     chk "$(evnum "(function(){return $LU._visorVisible?1:0;})()")" "0" "the real Return keystroke also dismisses"
     ;;
 
+  006)
+    LU="Main.extensionManager.lookup('$UUID').stateObj"
+    # --- static asserts: highlighting only on the Peek path; St.Label only (no markup) ---
+    chk "$(grep -rqs 'lib/highlight'  "$EXT/ui/peek.js" && echo y || echo n)" "y" "Peek imports the syntax highlighter"
+    chk "$(grep -rqs 'lib/highlight'  "$EXT/ui/card.js" && echo y || echo n)" "n" "shelf Cards never import the highlighter (highlighting only in Peek)"
+    chk "$(grep -rqs 'set_attributes' "$EXT/ui/peek.js" && echo y || echo n)" "y" "Peek colorizes via Pango attributes (set_attributes), never markup"
+    if grep -rqs 'set_markup(' "$EXT/ui" "$EXT/extension.js"; then
+      echo "  FAIL: set_markup() found (clipboard content must never be parsed as markup)"; fail=1
+    else echo "  ok  : no set_markup() anywhere (St.Label only)"; fi
+    chk "$(grep -rqs 'GetItemContent' "$EXT/ui" && echo y || echo n)" "y" "Peek fetches full content via GetItemContent"
+
+    # --- runtime: stub browse + content seams; a code entry, a prose entry, an image ---
+    # The card preview is the short ~200-char text; the FULL content (with a tail
+    # marker absent from the preview) comes via the GetItemContent seam — so a
+    # Peek that shows the marker proves it fetched full content, not the preview.
+    # NB: build multi-line code with String.fromCharCode(10) + join — a literal
+    # '\n' inside a JS string does NOT survive the gdbus/Eval round-trip (it
+    # collapses to a real line break and breaks the string literal).
+    nested_eval "(function(){
+      var e=$LU, sh=e._shelf, NL=String.fromCharCode(10);
+      globalThis._CODE=['function greet(name){','  // say hello','  const msg = \"hi \" + name;','  return msg;','}','// ZZTAIL end-of-file marker'].join(NL);
+      globalThis._bM=[
+        {id:'code', mime_type:'text/plain', content_text:'function greet(name){ ...', created_at:5, has_thumbnail:false},
+        {id:'prose',mime_type:'text/plain', content_text:'just some plain english',   created_at:4, has_thumbnail:false},
+        {id:'img',  mime_type:'image/png',  content_text:null,                        created_at:3, has_thumbnail:true}
+      ];
+      globalThis._fc=[];
+      sh._fetchPage=function(o,l){ return Promise.resolve(_bM.slice(o,o+l)); };
+      sh._fetchThumbnail=function(id){ return Promise.resolve(new Uint8Array([137,80,78,71])); };
+      sh._fetchContent=function(id){
+        _fc.push(id);
+        if (id==='img')  return Promise.resolve(['image/png', new Uint8Array([137,80,78,71,13,10,26,10,0,0,0,13])]);
+        if (id==='code') return Promise.resolve(['text/plain', new TextEncoder().encode(globalThis._CODE)]);
+        if (id==='prose')return Promise.resolve(['text/plain', new TextEncoder().encode('just some plain english words here with nothing special at all')]);
+        return Promise.resolve(['text/plain', new TextEncoder().encode('X')]);
+      };
+      e._showVisor(); return 1;
+    })()" >/dev/null 2>&1
+    sleep 0.7
+
+    # Peek a CODE entry: full content (GetItemContent), enlarged, syntax-highlighted
+    nested_eval "(function(){ globalThis._fc=[]; $LU._shelf.peek($LU._shelf._cards.get('code')); return 1; })()" >/dev/null 2>&1
+    sleep 0.4
+    chk "$(evnum "(function(){return $LU._shelf.isPeeking()?1:0;})()")" "1" "Space opens the Peek overlay"
+    chk "$(evnum "(function(){var a=globalThis._fc; return (a.length===1 && a[0]==='code')?1:0;})()")" "1" "Peek decodes ONLY the peeked entry (one GetItemContent)"
+    chk "$(evnum "(function(){return ($LU._shelf._peek._textLabel.get_text().indexOf('ZZTAIL')>=0)?1:0;})()")" "1" "Peek shows the FULL content (beyond the shelf preview)"
+    chk "$(evnum "(function(){return $LU._shelf._peek._rendered.isCode?1:0;})()")" "1" "code is detected as code"
+    chk "$(evnum "(function(){return ($LU._shelf._peek._rendered.spanCount>1)?1:0;})()")" "1" "code is syntax-highlighted (multiple colored spans)"
+    chk "$(evnum "(function(){return ($LU._shelf._peek._rendered.language)?1:0;})()")" "1" "a language is detected for highlighting"
+    # The shelf Card shows only the cheap truncated preview — never the full
+    # content the Peek fetched+highlighted (proves the highlight path is Peek-only;
+    # the static check above proves card.js never even imports the highlighter).
+    chk "$(evnum "(function(){var t=$LU._shelf._cards.get('code')._textLabel.get_text(); return (t.indexOf('ZZTAIL')<0 && t.indexOf('return msg')<0)?1:0;})()")" "1" "the shelf Card shows the plain preview, never the highlighted full content"
+
+    # Space again (or Escape) dismisses back to the shelf
+    nested_eval "(function(){ $LU._shelf.closePeek(); return 1; })()" >/dev/null 2>&1
+    sleep 0.2
+    chk "$(evnum "(function(){return $LU._shelf.isPeeking()?1:0;})()")" "0" "Space-again / Escape dismisses the Peek"
+
+    # Peek an IMAGE entry: full-res image via GetItemContent, decoded on demand (one image)
+    nested_eval "(function(){ globalThis._fc=[]; $LU._shelf.peek($LU._shelf._cards.get('img')); return 1; })()" >/dev/null 2>&1
+    sleep 0.4
+    chk "$(evnum "(function(){return $LU._shelf.isPeeking()?1:0;})()")" "1" "Space opens the Peek for an image"
+    chk "$(evnum "(function(){var a=globalThis._fc; return (a.length===1 && a[0]==='img')?1:0;})()")" "1" "the image is decoded on demand (one GetItemContent on keypress)"
+    chk "$(evnum "(function(){return ($LU._shelf._peek._rendered.kind==='image')?1:0;})()")" "1" "image Peek shows the full-resolution image"
+    chk "$(evnum "(function(){return ((($LU._shelf._peek._imageView.style)||'').indexOf('background-image')>=0)?1:0;})()")" "1" "the decoded image blob is applied to the Peek image view"
+    nested_eval "(function(){ $LU._shelf.closePeek(); return 1; })()" >/dev/null 2>&1
+    sleep 0.2
+
+    # plain prose peeks as plain text — no highlighting (highlighting is code-only)
+    nested_eval "(function(){ $LU._shelf.peek($LU._shelf._cards.get('prose')); return 1; })()" >/dev/null 2>&1
+    sleep 0.4
+    chk "$(evnum "(function(){return $LU._shelf._peek._rendered.isCode?1:0;})()")" "0" "plain prose is not syntax-highlighted"
+    chk "$(evnum "$LU._shelf._peek._rendered.spanCount")" "0" "plain prose Peek applies no color spans"
+    nested_eval "(function(){ $LU._shelf.closePeek(); return 1; })()" >/dev/null 2>&1
+    sleep 0.2
+
+    # peekFocused() respects keyboard focus: search box -> no Peek; a focused card -> Peek
+    nested_eval "(function(){ var e=$LU; global.stage.set_key_focus(e._searchEntry.get_clutter_text()); e._shelf.peekFocused(); return 1; })()" >/dev/null 2>&1
+    sleep 0.3
+    chk "$(evnum "(function(){return $LU._shelf.isPeeking()?1:0;})()")" "0" "Space in the search box types a space (no Peek when no card is focused)"
+    nested_eval "(function(){ var sh=$LU._shelf, c=sh._cards.get('code'); global.stage.set_key_focus(c); sh.peekFocused(); return 1; })()" >/dev/null 2>&1
+    sleep 0.4
+    chk "$(evnum "(function(){return $LU._shelf.isPeeking()?1:0;})()")" "1" "Space on a focused card opens its Peek"
+
+    # a REAL Escape keystroke closes the Peek, NOT the whole visor (capture-phase wiring)
+    nested_key Escape
+    sleep 0.3
+    chk "$(evnum "(function(){return $LU._shelf.isPeeking()?1:0;})()")" "0" "a real Escape dismisses the Peek"
+    chk "$(evnum "(function(){return $LU._visorVisible?1:0;})()")" "1" "Escape closes only the Peek; the visor stays open"
+
+    # leave a highlighted code Peek up for the screenshot
+    nested_eval "(function(){ $LU._shelf.peek($LU._shelf._cards.get('code')); return 1; })()" >/dev/null 2>&1
+    sleep 0.3
+    ;;
+
   *) echo "  note: no feature-specific checks for $ID (generic only)";;
 esac
 

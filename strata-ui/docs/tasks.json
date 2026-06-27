@@ -128,7 +128,7 @@
         "reference/strata-daemon-dbus-contract.md",
         "v1-spec.md"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "007",

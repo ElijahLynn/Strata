@@ -118,13 +118,38 @@ export default class StrataUIExtension extends Extension {
         // The shelf renders clipboard history as a horizontal band of cards,
         // paginated from the daemon and loaded on each open. onPick dismisses
         // the visor after a copy.
-        this._shelf = new Shelf(this._proxy, this._settings, {onPick: () => this._hideVisor()});
+        this._shelf = new Shelf(this._proxy, this._settings, {
+            onPick: () => this._hideVisor(),
+            peekHost: this._visor,
+        });
 
         this._band.add_child(header);
         this._band.add_child(this._shelf.actor);
         this._visor.add_child(this._band);
 
         Main.layoutManager.addChrome(this._visor);
+
+        // Space → Peek is handled in the CAPTURE phase: it must intercept the key
+        // before the focused card (an St.Button) activates-on-Space and copies.
+        // While a Peek is open it owns the keyboard — Space/Escape dismiss it and
+        // every other key is swallowed so the shelf/search don't react underneath.
+        this._visor.connect('captured-event', (_actor, event) => {
+            if (event.type() !== Clutter.EventType.KEY_PRESS)
+                return Clutter.EVENT_PROPAGATE;
+            const sym = event.get_key_symbol();
+            const shelf = this._shelf;
+            const isSpace = sym === Clutter.KEY_space || sym === Clutter.KEY_KP_Space;
+            if (shelf?.isPeeking()) {
+                if (isSpace || sym === Clutter.KEY_Escape)
+                    shelf.closePeek();
+                return Clutter.EVENT_STOP;
+            }
+            // Peek the focused Card. With no card focused (focus in search) let
+            // Space through so it types a space into the search box.
+            if (isSpace && shelf?.peekFocused())
+                return Clutter.EVENT_STOP;
+            return Clutter.EVENT_PROPAGATE;
+        });
 
         this._visor.connect('key-press-event', (_actor, event) => {
             const sym = event.get_key_symbol();
@@ -207,6 +232,7 @@ export default class StrataUIExtension extends Extension {
     _hideVisor() {
         if (!this._visorVisible)
             return;
+        this._shelf?.closePeek();   // never leave a Peek hanging behind a hidden visor
         if (this._grab) {
             Main.popModal(this._grab);
             this._grab = null;
