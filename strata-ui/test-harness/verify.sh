@@ -9,7 +9,8 @@ HARNESS="$(cd "$(dirname "$0")" && pwd)"
 UI="$(dirname "$HARNESS")"
 EXT="$UI/extension"
 UUID="strata-ui@elijahlynn.net"
-SHOT="${SHOT:-/tmp/strata-verify-$ID.png}"
+SHOT="${SHOT:-$HARNESS/screenshots/$ID.png}"
+mkdir --parents "$(dirname "$SHOT")"
 
 [ -f "$EXT/metadata.json" ] || { echo "verify $ID: no extension/ built yet"; exit 1; }
 glib-compile-schemas "$EXT/schemas" 2>/dev/null || true

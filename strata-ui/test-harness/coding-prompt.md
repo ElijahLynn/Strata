@@ -7,7 +7,9 @@ committed state.
 Per feature:
 1. **Catch up:** `claude-progress.txt`, `git log --oneline -10`, `docs/tasks.json`.
 2. **Pick:** lowest `id` with `passes:false` whose every `blockedBy` is `passes:true`. None → say "all pass", stop.
-3. **🔴 Red — write the test first.** Turn the feature's `steps` into assertions in
+3. **Announce.** Immediately append a dated `starting <id>: <title>` line to `claude-progress.txt` so
+   in-flight work is visible (no separate commit — it rides the completion commit).
+4. **🔴 Red — write the test first.** Turn the feature's `steps` into assertions in
    `test-harness/verify.sh` (its `case "<id>")` block) via `nested_eval` / log markers / the
    screenshot. Run `bash test-harness/verify.sh <id>` and confirm it **FAILS** for the right reason
    (the behavior isn't built yet). Don't write impl in this step.
