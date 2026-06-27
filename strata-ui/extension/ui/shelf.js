@@ -11,6 +11,7 @@
  */
 
 import GLib from 'gi://GLib';
+import Gio from 'gi://Gio';
 import St from 'gi://St';
 
 import { Card } from './card.js';
@@ -35,6 +36,13 @@ export class Shelf {
         /** @type {Map<string, Card>} id → card; doubles as a dedup guard. */
         this._cards = new Map();
 
+        // On-demand thumbnail state (feature 003).
+        /** @type {Map<string, string>} id → cache file path (session cache). */
+        this._thumbCache = new Map();
+        /** @type {Set<string>} ids already fetched/in-flight, so a visible card
+         *  is never re-requested while it stays on screen. */
+        this._thumbRequested = new Set();
+
         // Observable by the test harness; also handy for debugging.
         this.renderStats = { batchSize: RENDER_BATCH, batches: 0, count: 0 };
 
@@ -58,8 +66,19 @@ export class Shelf {
         this._scroll.set_child(this._cardBox);
         this.actor = this._scroll;
 
+        // Drive both pagination and lazy thumbnails off the horizontal viewport:
+        // value changes on scroll; upper/page-size change once a freshly-rendered
+        // page is laid out (so card allocations are valid when we test visibility).
         const adj = this._scroll.get_hadjustment();
-        this._scrollSignalId = adj?.connect('notify::value', () => this._maybeLoadMore());
+        this._adjIds = [];
+        for (const prop of ['notify::value', 'notify::upper', 'notify::page-size'])
+            this._adjIds.push(adj?.connect(prop, () => this._onViewportChanged()));
+        this._adj = adj;
+    }
+
+    _onViewportChanged() {
+        this._maybeLoadMore();
+        this._updateVisibleThumbs();
     }
 
     /** (Re)load from the top. Called each time the visor opens, so a summon
@@ -70,6 +89,9 @@ export class Shelf {
         this._loadedOffset = 0;
         this._hasMore = true;
         this.renderStats.batches = 0;
+        // Drop per-view thumbnail requests (cards are about to be rebuilt) but
+        // keep the session path cache so a reopen re-applies without re-fetching.
+        this._thumbRequested.clear();
         this._clear();
         this._loadPage(0, this._loadEpoch);
     }
@@ -103,6 +125,12 @@ export class Shelf {
         this._loadedOffset = offset + metas.length;
         this._hasMore = metas.length >= this._pageSize;
         this._loadingMore = false;
+        // Backstop: once the page has had a chance to lay out, load thumbnails
+        // for whatever ended up visible (in case no adjustment signal fired).
+        GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+            if (epoch === this._loadEpoch) this._updateVisibleThumbs();
+            return GLib.SOURCE_REMOVE;
+        });
     }
 
     /** Insert cards in idle_add chunks of RENDER_BATCH so a full page never
@@ -143,13 +171,95 @@ export class Shelf {
         this._loadPage(this._loadedOffset, this._loadEpoch);
     }
 
+    // -- On-demand thumbnails (feature 003) ------------------------------------
+
+    _thumbDir() { return `${GLib.get_user_cache_dir()}/strata/thumbnails`; }
+    _thumbPath(id) { return `${this._thumbDir()}/${id}.png`; }
+
+    /** Seam: fetch the daemon's ~200px PNG thumbnail bytes for one item.
+     *  Overridden in tests; the real path calls GetThumbnail(id). */
+    async _fetchThumbnail(id) {
+        const [bytes] = await this._proxy.GetThumbnailAsync(id);
+        return bytes;
+    }
+
+    /** Ensure one (visible) image card has its thumbnail. No-op for non-image
+     *  cards and for ids already requested this view, so off-screen cards never
+     *  hit D-Bus. Reuses the session map and the on-disk cache before fetching. */
+    _ensureThumb(card) {
+        const id = card.strataId;
+        if (!card.isImage || this._thumbRequested.has(id)) return;
+        this._thumbRequested.add(id);
+
+        const path = this._thumbPath(id);
+        if (this._thumbCache.has(id) || GLib.file_test(path, GLib.FileTest.EXISTS)) {
+            this._thumbCache.set(id, path);
+            card.applyThumbnail(`file://${path}`);
+            return;
+        }
+        if (!this._proxy) { this._thumbRequested.delete(id); return; }
+
+        GLib.mkdir_with_parents(this._thumbDir(), 0o755);
+        this._fetchThumbnail(id).then(bytes => {
+            if (!this._cards.has(id)) return;          // deleted while in flight
+            if (!bytes || bytes.length === 0) return;  // daemon has no thumbnail
+            const file = Gio.File.new_for_path(path);
+            file.replace_contents_bytes_async(
+                new GLib.Bytes(bytes), null, false, Gio.FileCreateFlags.NONE, null,
+                (f, res) => {
+                    try {
+                        f.replace_contents_finish(res);
+                        this._thumbCache.set(id, path);
+                        this._cards.get(id)?.applyThumbnail(`file://${path}`);
+                    } catch (e) {
+                        console.error('[Strata UI] thumbnail write failed:', e);
+                    }
+                });
+        }).catch(e => {
+            this._thumbRequested.delete(id);           // allow a later retry
+            console.error('[Strata UI] GetThumbnail failed:', e);
+        });
+    }
+
+    /** Request thumbnails for every image card currently in the viewport. Called
+     *  on scroll and after a page lays out. Cards without a real allocation yet
+     *  are skipped — they get picked up on the next relayout. */
+    _updateVisibleThumbs() {
+        if (!this._cardBox || !this._scroll) return;
+        const adj = this._scroll.get_hadjustment();
+        if (!adj || adj.page_size <= 0) return;
+        const lo = adj.value;
+        const hi = adj.value + adj.page_size;
+        for (const card of this._cardBox.get_children()) {
+            if (!card.isImage || this._thumbRequested.has(card.strataId)) continue;
+            const box = card.get_allocation_box();
+            if (box.x2 - box.x1 <= 0) continue;        // not laid out yet
+            if (box.x2 >= lo && box.x1 <= hi) this._ensureThumb(card);
+        }
+    }
+
+    /** A daemon item went away (delete or prune): drop its card and unlink the
+     *  cached thumbnail. (The ItemDeleted signal subscription is wired in 009.) */
+    onItemDeleted(id) {
+        const path = this._thumbCache.get(id) ?? this._thumbPath(id);
+        try { GLib.unlink(path); } catch (_) {}
+        this._thumbCache.delete(id);
+        this._thumbRequested.delete(id);
+        const card = this._cards.get(id);
+        if (card) {
+            card.destroy();
+            this._cards.delete(id);
+            this.renderStats.count = this._cards.size;
+        }
+    }
+
     destroy() {
         this._loadEpoch++; // invalidate any in-flight render
-        const adj = this._scroll?.get_hadjustment();
-        if (this._scrollSignalId && adj) {
-            adj.disconnect(this._scrollSignalId);
-            this._scrollSignalId = 0;
+        if (this._adjIds && this._adj) {
+            for (const id of this._adjIds) { if (id) this._adj.disconnect(id); }
         }
+        this._adjIds = null;
+        this._adj = null;
         this._clear();
         this._scroll?.destroy();
         this._scroll = null;

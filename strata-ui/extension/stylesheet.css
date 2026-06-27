@@ -35,3 +35,13 @@
   color: rgba(255, 255, 255, 0.92);
   font-size: 14px;
 }
+
+/* Image card: the thumbnail fills the card body; a placeholder icon shows
+   until the shelf fetches the thumbnail for this (visible) card. */
+.strata-card-thumb {
+  border-radius: 6px;
+  background-color: rgba(0, 0, 0, 0.25);
+}
+.strata-card-thumb-placeholder {
+  color: rgba(255, 255, 255, 0.35);
+}

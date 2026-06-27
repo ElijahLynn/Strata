@@ -3,6 +3,32 @@ Newest entries on top. Each coding session appends what it did + how to verify.
 Harness: https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents
 
 ────────────────────────────────────────────────────────────────────────
+2026-06-27 — 003: Image thumbnails (TDD red→green, verified headlessly)
+- card.js now branches: image mime → a thumb container (St.Widget + BinLayout)
+  with a placeholder icon; applyThumbnail(fileUri) swaps in a CSS background-image
+  (PNG decoded off the shell thread by the CSS loader, never on the main loop).
+- shelf.js orchestrates thumbnails LAZILY, per visible card only:
+  _updateVisibleThumbs() intersects each image card's allocation box with the
+  hadjustment viewport [value, value+page_size] (skips not-yet-allocated boxes) and
+  calls _ensureThumb() only for those in view → off-screen cards issue ZERO D-Bus.
+  Driven by hadjustment notify::value/upper/page-size + a post-load idle backstop.
+- _ensureThumb: session Map (_thumbCache id→path) + disk cache
+  (~/.cache/strata/thumbnails/<id>.png) checked before GetThumbnail; _thumbRequested
+  Set prevents re-fetch while visible; cleared on reload (cards rebuilt) but cache kept.
+  _fetchThumbnail(id) is the daemon seam (GetThumbnailAsync), stubbed in tests.
+- onItemDeleted(id): GLib.unlink the cached PNG + drop the card. (009 wires the
+  actual ItemDeleted signal to this.)
+- TEST FIRST: verify.sh case 003 feeds 60 image metas, stubs _fetchPage +
+  _fetchThumbnail (records requested ids), asserts only visible cards fetch
+  (img0 yes / img40 no, ≤12 total), bg-image set on visible / placeholder on
+  off-screen, file cached to $XDG_CACHE_HOME/strata/thumbnails/img0.png, scroll
+  img40 into view → it fetches, onItemDeleted → file unlinked + card gone.
+  RED before impl, GREEN after; 002 re-verified (no regression).
+- Run: bash test-harness/verify.sh 003   (shot: /tmp/strata-verify-003.png)
+- NEXT ready: 004 (search) / 005 (select) / 006 (peek) / 007 (typed cards) /
+  009 (live signals) — all blockedBy 002✓; 008 blockedBy 001✓.
+
+────────────────────────────────────────────────────────────────────────
 2026-06-27 — 002: Shelf from history (TDD red→green, verified headlessly)
 - New extension/ui/shelf.js + extension/ui/card.js; wired into the visor band
   (extension.js): the empty placeholder is replaced by a horizontal St.ScrollView
