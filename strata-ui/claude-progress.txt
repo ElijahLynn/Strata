@@ -5,6 +5,25 @@ Entries are headed with a UTC ISO-8601 timestamp (YYYY-MM-DDThh:mm:ssZ, from
 Harness: https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents
 
 ────────────────────────────────────────────────────────────────────────
+2026-06-27T23:43:27Z — 026: Hex color swatch label readable in both themes (contrast)
+
+WHAT WAS DONE. Added per-theme CSS rules for .strata-card-color-hex in
+strata-ui/extension/stylesheet.css, mirroring slice 017's search-placeholder
+contrast fix. The base rule was hard-coded rgba(255,255,255,0.85) (near-white),
+making the hex label invisible in the light theme (~1.08:1 contrast on the light
+band). Added:
+  .strata-theme-dark .strata-card-color-hex { color: rgba(255,255,255,0.85); }
+  .strata-theme-light .strata-card-color-hex { color: rgba(0,0,0,0.85); }
+Both use two-class selectors (specificity 0,2,0) vs the base rule's 0,1,0, placed
+AFTER the base rule in the file. The dark rule restates the current behaviour; the
+light rule switches to near-black for ~19:1 contrast on the light band.
+
+VERIFY. timeout 580 ./test-harness/verify.sh all => ALL GREEN (22 cases).
+Case 026 specifically: light computed fg != near-white, 19.46:1 contrast on light
+band; dark 16.95:1 contrast on dark band. Teeth-proven: removing the light rule
+drops light contrast to 1.08:1 and flags near-white => RED.
+
+────────────────────────────────────────────────────────────────────────
 2026-06-27T22:58:12Z — 022: Copy image also offers a file:// path for text targets — BLOCKED (same Mutter/GJS multi-mime wall as 019)
 
 WHAT WAS ASKED. When an image is pasted back, ALSO put a text file:// path (to a

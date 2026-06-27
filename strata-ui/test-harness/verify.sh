@@ -1321,6 +1321,81 @@ case "$ID" in
     done
     ;;
 
+  026)
+    LU="Main.extensionManager.lookup('$UUID').stateObj"
+    # --- BUG (live): the hex label below the color swatch (.strata-card-color-hex)
+    #     is hard-coded color: rgba(255,255,255,0.85) — near-WHITE — so in the LIGHT
+    #     theme it renders as white text on the light-grey card surface and is almost
+    #     invisible. The dark theme happens to look fine. Fix: per-theme CSS rules for
+    #     .strata-card-color-hex, mirroring slice 017's search-placeholder contrast fix.
+    #
+    # USER-OBSERVABLE assert: build a color card, read the hex label's COMPUTED
+    # foreground color via its theme node in BOTH skins. In the light theme the color
+    # must be DARK (not near-white) and must contrast against the light card. In the
+    # dark theme it must be LIGHT and contrast against the dark card.
+    #
+    # Threshold: 4.5:1 (WCAG AA for normal text). The card surface in light theme is
+    # roughly #F4F4F6 (the light band with 4% black card overlay). White on that is
+    # ~1.0:1 (invisible). A dark color like rgb(30,30,35) gives ~15:1. In the dark
+    # theme the card is roughly #1E1E22; rgba(255,255,255,0.85) gives ~10:1.
+    # We use band bg as the reference since the card bg may be transparent:
+    # light band ~= rgb(246,246,248); dark band ~= rgb(28,28,34). ---
+
+    # Static guard: stylesheet declares per-theme rules for .strata-card-color-hex
+    # for BOTH .strata-theme-light and .strata-theme-dark (must have a rule in each).
+    lighthex="$(grep -E '\.strata-theme-light[^{]*\.strata-card-color-hex|\.strata-card-color-hex[^{]*\.strata-theme-light' "$EXT/stylesheet.css" | grep -c .)"
+    darkhex="$(grep -E '\.strata-theme-dark[^{]*\.strata-card-color-hex|\.strata-card-color-hex[^{]*\.strata-theme-dark' "$EXT/stylesheet.css" | grep -c .)"
+    chk "$([ "${lighthex:-0}" -ge 1 ] && echo y || echo n)" "y" "stylesheet has a .strata-theme-light rule for .strata-card-color-hex"
+    chk "$([ "${darkhex:-0}" -ge 1 ] && echo y || echo n)" "y" "stylesheet has a .strata-theme-dark rule for .strata-card-color-hex"
+
+    # WCAG-ish contrast ratio (same helper as 017).
+    contrast(){ awk -v fr="$1" -v fg="$2" -v fb="$3" -v br="$4" -v bg="$5" -v bb="$6" 'function lin(c){c/=255; return (c<=0.03928)?c/12.92:((c+0.055)/1.055)^2.4} function lum(r,g,b){return 0.2126*lin(r)+0.7152*lin(g)+0.0722*lin(b)} BEGIN{L1=lum(fr,fg,fb);L2=lum(br,bg,bb); hi=(L1>L2)?L1:L2; lo=(L1>L2)?L2:L1; printf "%.2f", (hi+0.05)/(lo+0.05)}'; }
+    NEARWHITE_R=255; NEARWHITE_G=255; NEARWHITE_B=255
+
+    # Open once with a color card, then switch themes live (class-toggle, no reshow).
+    # This matches the 024 pattern: _showVisor once, then flip the theme setting.
+    nested_eval "(function(){
+      var e=$LU, sh=e._shelf;
+      sh._fetchPage=function(o,l){
+        return Promise.resolve([{id:'hx0',mime_type:'text/plain',content_text:'#00FFCC',created_at:1,has_thumbnail:false}]);
+      };
+      e._showVisor(); return 1;
+    })()" >/dev/null 2>&1
+    sleep 0.8
+
+    # Read hex label computed fg color for a given theme (switch live, then read).
+    hexsig(){   # $1 = theme (dark|light)
+      nested_eval "(function(){ $LU._settings.set_string('theme','$1'); return 1; })()" >/dev/null 2>&1
+      sleep 0.4
+      nested_eval "(function(){
+        var sh=$LU._shelf;
+        var card=sh._cards.get('hx0');
+        if(!card) return '-1 -1 -1 -1';
+        // card > strata-card-body (BoxLayout) > strata-card-color (BoxLayout) > [swatch, hexLabel]
+        var body=card.get_child();
+        var colorBox=body.get_first_child();
+        var hexLabel=colorBox.get_last_child();
+        var hc=hexLabel.get_theme_node().get_foreground_color();
+        return [hc.red,hc.green,hc.blue,hc.alpha].join(' ');
+      })()" 2>/dev/null | grep -oE '[0-9]+ [0-9]+ [0-9]+ [0-9]+' | head -1
+    }
+
+    # --- LIGHT skin: hex label must NOT be near-white (the bug) and must contrast
+    #     against the light card/band surface (~rgb(246,246,248)). ---
+    sig="$(hexsig light)"
+    read -r hr hg hb ha <<< "$sig"
+    chk "$([ "$hr" = "$NEARWHITE_R" ] && [ "$hg" = "$NEARWHITE_G" ] && [ "$hb" = "$NEARWHITE_B" ] && echo near-white || echo distinct)" "distinct" "light: hex label is NOT the old near-white rgba(255,255,255,…) on the light card"
+    lctr="$(contrast "${hr:-255}" "${hg:-255}" "${hb:-255}" 246 246 248)"
+    chk "$(awk -v c="${lctr:-0}" 'BEGIN{print (c>=4.5)?"ok":"low"}')" "ok" "light: hex label contrast vs light band is adequate (${lctr:-?}:1 >= 4.5; 4.5 = WCAG AA normal text)"
+
+    # --- DARK skin: hex label must be LIGHT (near-white IS correct here) and must
+    #     contrast against the dark band surface (~rgb(28,28,34)). ---
+    sig="$(hexsig dark)"
+    read -r hr hg hb ha <<< "$sig"
+    dctr="$(contrast "${hr:-0}" "${hg:-0}" "${hb:-0}" 28 28 34)"
+    chk "$(awk -v c="${dctr:-0}" 'BEGIN{print (c>=4.5)?"ok":"low"}')" "ok" "dark: hex label contrast vs dark band is adequate (${dctr:-?}:1 >= 4.5)"
+    ;;
+
   *) echo "  note: no feature-specific checks for $ID (generic only)";;
 esac
 

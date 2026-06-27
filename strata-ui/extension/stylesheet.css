@@ -244,3 +244,18 @@
 .strata-theme-light .strata-card-focused .strata-card-file-name {
   color: rgba(0, 0, 0, 0.92);
 }
+
+/* ── Hex label contrast, per theme (026) ────────────────────────────────────
+   .strata-card-color-hex base rule is hard-coded near-white (rgba(255,255,255,0.85)).
+   In the LIGHT theme the card surface is light grey, so near-white is unreadable.
+   These per-theme rules mirror the 017 pattern: two-class selectors (specificity
+   0,2,0 vs the base rule's 0,1,0) placed AFTER the base rule so they win on BOTH
+   specificity and source order. Dark theme restates near-white explicitly (already
+   readable, ~17:1 contrast vs the dark band); light theme uses a dark grey
+   (rgba(0,0,0,0.85)) readable on the light card (~15:1 vs the light band). */
+.strata-theme-dark .strata-card-color-hex {
+  color: rgba(255, 255, 255, 0.85);
+}
+.strata-theme-light .strata-card-color-hex {
+  color: rgba(0, 0, 0, 0.85);
+}
