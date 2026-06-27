@@ -1,0 +1,143 @@
+{
+  "project": "strata-ui",
+  "milestone": "v1-mvp",
+  "schema": "Anthropic long-running-agent feature list (category / description / steps / passes), extended with id / blockedBy / refs. See https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents",
+  "instructions": "Edit ONLY the `passes` field of a feature, and flip it to true ONLY after carefully testing every step. Never delete, weaken, or merge a feature to make it pass. Work the highest-priority feature whose blockedBy are all passing. UI-only: do not modify strata-daemon (ADR-0003).",
+  "features": [
+    {
+      "id": "001",
+      "title": "Empty visor",
+      "category": "infrastructure",
+      "description": "The extension installs, enables, and supervises the Strata daemon; Ctrl+Alt+C makes a full-width, fixed-height empty visor appear instantly at the configured edge and toggle away.",
+      "steps": [
+        "gnome-extensions enable activates the extension with no errors in the journal",
+        "Ctrl+Alt+C instantly shows a full-width band (~360px) at the bottom edge and toggles it away on the same key; no slide animation",
+        "Escape and focus-loss dismiss the visor",
+        "The daemon is spawned if absent, supervised with exponential-backoff restart, and NOT double-spawned when a systemd instance already owns dev.edu4rdshl.Strata"
+      ],
+      "blockedBy": [],
+      "refs": ["ADR-0001", "ADR-0004", "reference/architecture-constraints.md", "v1-spec.md"],
+      "passes": false
+    },
+    {
+      "id": "002",
+      "title": "Shelf from history",
+      "category": "functional",
+      "description": "The visor renders clipboard history as a horizontal shelf of fixed-width Text cards, newest first, paginated from the daemon and loading more as you scroll toward the end.",
+      "steps": [
+        "On open, the first page (page-size, default 50) loads via GetHistory(0, pageSize) and renders as ~300x280 cards, ~6 visible on 1080p",
+        "Scrolling within ~200px of the end fetches the next page; the full table never sits in JS memory",
+        "Rows are inserted in idle_add batches (~20) so a page never freezes a frame",
+        "Card text uses St.Label only (no set_markup)"
+      ],
+      "blockedBy": ["001"],
+      "refs": ["reference/strata-daemon-dbus-contract.md", "reference/architecture-constraints.md", "v1-spec.md"],
+      "passes": false
+    },
+    {
+      "id": "003",
+      "title": "Image thumbnails",
+      "category": "functional",
+      "description": "Image entries show a thumbnail on their card, fetched on demand only for visible cards and cached to disk.",
+      "steps": [
+        "Image cards render a placeholder first, then load the ~200px PNG via GetThumbnail(id) for visible cards only",
+        "Thumbnails are cached at ~/.cache/strata/thumbnails/<id>.png and reused (session Map + disk)",
+        "Scrolling past off-screen image cards issues no D-Bus traffic for those rows",
+        "On ItemDeleted, the cached thumbnail file is unlinked"
+      ],
+      "blockedBy": ["002"],
+      "refs": ["reference/strata-daemon-dbus-contract.md", "reference/architecture-constraints.md"],
+      "passes": false
+    },
+    {
+      "id": "004",
+      "title": "Search (FTS5 prefix)",
+      "category": "functional",
+      "description": "Typing in the header search box filters the shelf via the daemon's FTS5 prefix search. Fuzzy search is deferred to v2 (ADR-0003).",
+      "steps": [
+        "Search box is focused on open (search-first); typing filters results",
+        "Queries call SearchHistory(query, max-history) with a 150ms debounce and an epoch guard that drops stale responses",
+        "Empty query restores the recent-history browse view",
+        "Results render through the same paged/idle_add mechanism as browse mode"
+      ],
+      "blockedBy": ["002"],
+      "refs": ["reference/strata-daemon-dbus-contract.md", "v1-spec.md", "ADR-0003"],
+      "passes": false
+    },
+    {
+      "id": "005",
+      "title": "Select & copy-and-dismiss",
+      "category": "functional",
+      "description": "Choosing a card copies that entry to the system clipboard and dismisses the visor. No auto-paste (ADR-0005).",
+      "steps": [
+        "Enter copies the focused card (or the top result if focus is still in search) and closes the visor",
+        "Alt+1...9 copies the Nth visible card and closes",
+        "Paste-back fetches GetItemContent(id): text via St.Clipboard.set_text, binary via Meta.SelectionSourceMemory + set_owner",
+        "No synthetic paste is ever sent to another app",
+        "move-activated-to-top is honored when the setting is on"
+      ],
+      "blockedBy": ["002"],
+      "refs": ["reference/strata-daemon-dbus-contract.md", "ADR-0005", "v1-spec.md"],
+      "passes": false
+    },
+    {
+      "id": "006",
+      "title": "Peek (Space)",
+      "category": "functional",
+      "description": "Space enlarges the focused card into a Peek: full text (syntax-highlighted for code) or a full-resolution image.",
+      "steps": [
+        "Space on a text/code card shows the full content large; code is syntax-highlighted (highlight.js) ONLY here, never on the shelf",
+        "Space on an image card shows the full-resolution image, decoded on demand via GetItemContent (one image, on keypress)",
+        "Space again or Escape dismisses the Peek back to the shelf",
+        "Highlighting/decoding happens only for the single Peeked entry"
+      ],
+      "blockedBy": ["002"],
+      "refs": ["ADR-0007", "ADR-0003", "reference/strata-daemon-dbus-contract.md", "v1-spec.md"],
+      "passes": false
+    },
+    {
+      "id": "007",
+      "title": "Card renderers (URL, color, file)",
+      "category": "functional",
+      "description": "Non-plain-text entries get type-specific cards matching Strata's current behavior: URL, hex color, file(s). Cheap client-side regex; no code detection on the shelf (ADR-0007).",
+      "steps": [
+        "Entries matching a URL render link-styled with the hostname as a subtitle",
+        "Entries matching #rgb / #rrggbb render a hex color swatch",
+        "uri-list / copied-files entries render filename(s) with an icon",
+        "Classification is cheap regex on the client; everything else stays a Text card"
+      ],
+      "blockedBy": ["002"],
+      "refs": ["ADR-0007", "v1-spec.md", "reference/copyous-good-parts.md"],
+      "passes": false
+    },
+    {
+      "id": "008",
+      "title": "Settings (in-UI gear + layout keys)",
+      "category": "functional",
+      "description": "A gear in the visor header opens the extension prefs directly, and the new layout keys are wired into the gschema and the visor.",
+      "steps": [
+        "A gear button opens the prefs window via openPreferences() without going through the GNOME Extensions app (req #5)",
+        "Prefs expose visor-edge (top/bottom, default bottom), visor-height, card-width, plus the reused Strata keys (theme, max-history, size caps, keyboard-shortcut, excluded-apps)",
+        "Changing visor-edge/height/card-width updates the visor live or on next open",
+        "theme auto/light/dark applies via the class-toggle approach"
+      ],
+      "blockedBy": ["001"],
+      "refs": ["v1-spec.md", "ADR-0004", "reference/architecture-constraints.md"],
+      "passes": false
+    },
+    {
+      "id": "009",
+      "title": "Live updates (signals)",
+      "category": "functional",
+      "description": "The shelf stays in sync with the daemon via its D-Bus signals.",
+      "steps": [
+        "ItemAdded prepends a new card (debounced to coalesce bursts); entries from excluded-apps are dropped",
+        "ItemDeleted removes the card and unlinks its cached thumbnail",
+        "HistoryCleared empties the shelf and wipes the thumbnail cache directory"
+      ],
+      "blockedBy": ["002"],
+      "refs": ["reference/strata-daemon-dbus-contract.md", "reference/architecture-constraints.md"],
+      "passes": false
+    }
+  ]
+}
