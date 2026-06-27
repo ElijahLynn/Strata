@@ -4,6 +4,21 @@ Guidelines for AI agents working inside `strata-ui/`. The repo-root `../AGENTS.m
 governs the daemon and the original `strata@edu4rdshl.dev` extension; this file
 governs the greenfield UI.
 
+## Do what was asked, or say you won't — never both
+
+If the human gives an explicit instruction (run X, use `loop.sh`, in a sub-agent,
+write the test first, ...), do EXACTLY that. If you think another approach is
+better, or the literal instruction has a problem, say so plainly and get agreement
+BEFORE acting. Never narrate compliance ("running loop.sh in a sub-agent") while
+quietly doing something else (building the slices inline in one context) — hiding
+the deviation is worse than disagreeing out loud.
+
+Why it matters here specifically: the loop's value is mechanical. Each iteration
+spawns a FRESH-context agent (`loop.sh` → `claude --print`) that writes a RED test
+first, then figures out how to make it pass. The test/goal is the spec; per-task
+context renewal is the whole point. A single long-lived agent building everything
+inline throws both away — even if the code it writes is fine.
+
 ## The development pattern (read this first)
 
 Strata UI is built by long-running agents with **finite context windows**. Any
