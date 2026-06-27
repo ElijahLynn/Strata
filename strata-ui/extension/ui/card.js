@@ -174,14 +174,23 @@ class Card extends St.Button {
     }
 
     /** Apply a fetched/cached thumbnail. The PNG is decoded off the shell thread
-     *  by the CSS background-image loader, not on the main loop. */
+     *  by the CSS background-image loader, not on the main loop.
+     *
+     *  Sizing (018): `contain`, never `cover`. The daemon only emits a ~200px
+     *  thumbnail; `cover` upscaled it to fill the ~300px card (blurry, worse on a
+     *  HiDPI/scaled display) and cropped it to the card's aspect. `contain` keeps
+     *  the thumbnail crisp at its native size, preserves its aspect (no crop), and
+     *  letterboxes the remainder against .strata-card-thumb's dark background —
+     *  matching how the full-res Peek image is already letter-boxed. This is the
+     *  UI-only ceiling: a truly-sharp HiDPI card needs the daemon to emit a larger
+     *  thumbnail (a GetPreview endpoint), which crosses ADR-0003 (daemon untouched). */
     applyThumbnail(fileUri) {
         if (!this._thumbContainer)
             return;
         try {
             this._thumbContainer.style =
                 `background-image: url("${fileUri}");` +
-                'background-size: cover; background-position: center; background-repeat: no-repeat;';
+                'background-size: contain; background-position: center; background-repeat: no-repeat;';
             this._thumbPlaceholder?.hide();
             this._thumbLoaded = true;
         } catch (_) { /* container destroyed mid-flight */ }

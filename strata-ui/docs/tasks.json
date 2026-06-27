@@ -399,6 +399,25 @@
         "v1-spec.md"
       ],
       "passes": true
+    },
+    {
+      "id": "018",
+      "title": "Crisp card thumbnails (no blurry upscaling)",
+      "category": "bugfix",
+      "description": "Image cards render very blurry / low-res. card.js applyThumbnail() sets the daemon's ~200px thumbnail as a background-image with `background-size: cover`, which upscales it to fill the ~300px card (worse on a HiDPI/scaled display) and crops it to the card's aspect. Fix is UI-only: render the thumbnail without blurry upscaling — `background-size: contain` keeps it crisp at its native size, preserves aspect (no crop), and letterboxes the remainder against the card's dark thumb background. This is the UI-only ceiling: a TRULY sharp HiDPI card needs the daemon to emit a larger thumbnail (a GetPreview(id, max_px) endpoint), which crosses ADR-0003 and is NOT done here.",
+      "steps": [
+        "applyThumbnail() applies the fetched thumbnail with `background-size: contain` (crisp at native size, aspect-preserving, letterboxed), never `cover`",
+        "Image cards still show a placeholder first and swap in the thumbnail for visible cards only (003 behavior unchanged: container, on-demand fetch, disk cache, unlink-on-delete)",
+        "TEST FIRST: verify.sh case 018 stubs the fetch seams with image metas, opens, and asserts the applied _thumbContainer.style uses `background-size: contain` and does NOT use `cover`. TEETH: reverting applyThumbnail back to `cover` turns case 018 RED. 003 re-verified",
+        "HONEST NOTE: contain caps upscaling for crispness but cannot add resolution; truly-sharp HiDPI thumbnails require a larger daemon thumbnail (crosses ADR-0003 — daemon untouched). This slice is the UI-only ceiling."
+      ],
+      "blockedBy": [
+        "003"
+      ],
+      "refs": [
+        "reference/architecture-constraints.md"
+      ],
+      "passes": true
     }
   ]
 }

@@ -1007,6 +1007,35 @@ case "$ID" in
     chk "$([ "$hr" = "$NEARWHITE_R" ] && [ "$hg" = "$NEARWHITE_G" ] && [ "$hb" = "$NEARWHITE_B" ] && echo near-white || echo distinct)" "distinct" "light: hint is NOT the old near-white rgb(255,255,255) value"
     lctr="$(contrast "$hr" "$hg" "$hb" "$bbr" "$bbg" "$bbb")"
     chk "$(awk -v c="$lctr" 'BEGIN{print (c>=4.5)?"ok":"low"}')" "ok" "light: hint contrast vs band is adequate ($lctr:1 >= 4.5)"
+  018)
+    LU="Main.extensionManager.lookup('$UUID').stateObj"
+    # --- the live bug: image cards look very blurry / low-res. applyThumbnail() drops
+    #     the daemon's ~200px thumbnail in as a background-image with `background-size:
+    #     cover`, which UPSCALES it to fill the ~300px card (worse on a HiDPI/scaled
+    #     display) AND crops it to the card's aspect. The crisp UI-only fix renders the
+    #     thumbnail with `background-size: contain` (native size, aspect-preserving,
+    #     letterboxed) so it is never blurry-upscaled and never cropped. ---
+
+    # --- static: applyThumbnail must NOT use `cover` and MUST use `contain` ---
+    appthumb="$(awk '/applyThumbnail\(fileUri\) \{/{f=1} f{print} f&&/^    \}/{exit}' "$EXT/ui/card.js")"
+    chk "$(printf '%s' "$appthumb" | grep -qsE 'background-size:[[:space:]]*cover' && echo y || echo n)" "n" "applyThumbnail does NOT upscale with background-size: cover"
+    chk "$(printf '%s' "$appthumb" | grep -qsE 'background-size:[[:space:]]*contain' && echo y || echo n)" "y" "applyThumbnail renders crisp with background-size: contain"
+
+    # --- runtime: stub the fetch seams with image metas, open, let a VISIBLE card load
+    #     its thumbnail, then read the style ACTUALLY applied to the card (003 unchanged:
+    #     placeholder first, on-demand fetch for visible cards only). ---
+    nested_eval "(function(){
+      var e=$LU, sh=e._shelf;
+      globalThis._tM=[]; for (var i=0;i<8;i++) _tM.push({id:'t'+i,mime_type:'image/png',content_text:null,created_at:i,has_thumbnail:true});
+      sh._fetchPage=function(o,l){ return Promise.resolve(_tM.slice(o,o+l)); };
+      sh._fetchThumbnail=function(id){ return Promise.resolve(new Uint8Array([137,80,78,71,13,10,26,10,0,0,0,13])); };
+      e._showVisor(); return 1;
+    })()" >/dev/null 2>&1
+    sleep 1.2
+    tstyle(){ nested_eval "(function(){var c=$LU._shelf._cards.get('t0'); return ((c&&c._thumbContainer&&c._thumbContainer.style)||'');})()" 2>/dev/null; }
+    chk "$(evnum "(function(){var c=$LU._shelf._cards.get('t0'); return (((c._thumbContainer.style)||'').indexOf('background-image')>=0)?1:0;})()")" "1" "visible image card loaded a thumbnail (background-image applied)"
+    chk "$(evnum "(function(){var s=(($LU._shelf._cards.get('t0')._thumbContainer.style)||'').replace(/ /g,''); return (s.indexOf('background-size:contain')>=0)?1:0;})()")" "1" "the APPLIED thumbnail style uses background-size: contain (crisp, no upscale)"
+    chk "$(evnum "(function(){var s=(($LU._shelf._cards.get('t0')._thumbContainer.style)||'').replace(/ /g,''); return (s.indexOf('background-size:cover')>=0)?1:0;})()")" "0" "the APPLIED thumbnail style does NOT use background-size: cover (no blurry upscaling)"
     ;;
 
   *) echo "  note: no feature-specific checks for $ID (generic only)";;

@@ -143,8 +143,11 @@
   font-size: 14px;
 }
 
-/* Image card: the thumbnail fills the card body; a placeholder icon shows
-   until the shelf fetches the thumbnail for this (visible) card. */
+/* Image card: a placeholder icon shows until the shelf fetches the thumbnail for
+   this (visible) card. The thumbnail is applied in JS (card.js applyThumbnail) with
+   `background-size: contain` (018) — crisp at the daemon's native ~200px size and
+   aspect-preserving, never blurry-upscaled to fill the card. This dark background
+   is the letterbox backdrop the `contain` image is centered over. */
 .strata-card-thumb {
   border-radius: 6px;
   background-color: rgba(0, 0, 0, 0.25);
