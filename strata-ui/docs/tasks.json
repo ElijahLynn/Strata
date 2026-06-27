@@ -246,8 +246,8 @@
       "steps": [
         "After activating a non-top card, the system clipboard actually holds THAT card's content (read back via St.Clipboard.get_text in the nested session), not the top-of-history entry",
         "The clipboard write is not lost when the visor dismisses: GetItemContent resolves and the clipboard is set even though the visor closes (write before dismiss, matching the original _onItemActivated ordering)",
-        "TEST FIRST: verify.sh case 012 stubs _fetchContent for a specific non-top card, activates it, then READS the nested session real clipboard and asserts it equals that card's content (an end-to-end check, not just _lastWrite). If the bug does not reproduce headlessly because it is Wayland-specific, record that in the case and rely on the live smoke step below; do not flip passes on _lastWrite alone. 005 re-verified",
-        "Manual live smoke + journal: click an older entry, paste into a text editor, confirm it matches; capture journalctl '[Strata UI]' lines if it does not"
+        "TEST FIRST: verify.sh case 012 puts real items in the daemon (SubmitItem) so they exist, opens browse, activates a known non-top card, then READS the real nested-session clipboard (St.Clipboard.get_default().get_text) and asserts it equals that card's content (end-to-end, not just _lastWrite). RED if the bug reproduces headlessly, GREEN after. Only if the headless clipboard already comes back CORRECT is the bug session-specific — then, and only then, capture the live journal. 005 re-verified",
+        "Fallback live smoke (only if headless cannot reproduce): click an older entry, paste into a text editor, confirm it matches; capture journalctl '[Strata UI]' lines"
       ],
       "blockedBy": [
         "005"
@@ -263,12 +263,12 @@
       "id": "013",
       "title": "Gear opens the preferences window (live)",
       "category": "bugfix",
-      "description": "The header gear hides the visor then calls openPreferences(); live, the visor closes but no prefs window appears. prefs.js is Adw and cannot be loaded headlessly (008 only node --check-ed it), so this needs a live smoke plus the journal error to root-cause (a likely candidate is an Adw API that the running GNOME 48/49/50 changed or removed, e.g. Adw.MessageDialog in the shortcut dialog, or an openPreferences failure). Harden _onGearClicked so a prefs failure is logged with the [Strata UI] prefix instead of failing silently.",
+      "description": "The header gear hides the visor then calls openPreferences(); live, the visor closes but no prefs window appears. The likely cause is prefs.js failing to construct under the running GNOME's libadwaita (008 only node --check-ed it, which cannot catch a runtime Adw API change/removal, e.g. Adw.MessageDialog in the shortcut dialog). This IS headless-testable: drive the real prefs path against the nested shell and assert prefs.js loads without error. Harden _onGearClicked so a prefs failure is logged with the [Strata UI] prefix instead of failing silently.",
       "steps": [
         "Clicking the gear opens the Strata UI prefs window (General + Privacy pages) and does not merely dismiss the visor",
-        "Root cause captured from journalctl when the gear is pressed; any Adw API incompatibility in prefs.js for the running GNOME is fixed",
+        "Any Adw API incompatibility in prefs.js for the running GNOME (48/49/50) is fixed; prefs.js constructs cleanly",
         "_onGearClicked wraps openPreferences in try/catch and logs failures; opening prefs does not depend on the visor's modal still being up",
-        "TEST: keep the headless spy that the gear handler invokes openPreferences() and that prefs.js passes node --check; ADD a documented live smoke step (open prefs, change a key such as visor-edge, confirm it applies live) since Adw cannot load headlessly. Do NOT flip passes on the syntax-check + spy alone"
+        "TEST FIRST: verify.sh case 013 invokes the REAL prefs path in the nested shell (org.gnome.Shell.Extensions.OpenExtensionPrefs on the private bus, the same call openPreferences() makes), then asserts there is NO prefs/Adw error in the shell log and screenshots the prefs window. Keep the 008 spy that the gear handler calls openPreferences(). RED if prefs.js throws under the running Adw, GREEN after the fix. Live journal only as a fallback if it loads clean headlessly yet still fails in the real session"
       ],
       "blockedBy": [
         "008"
