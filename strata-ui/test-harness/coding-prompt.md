@@ -19,7 +19,14 @@ Per feature:
    `docs/adr/*`, `docs/reference/*`. Lift daemon supervision + `dbus.js` verbatim from
    `../strata@edu4rdshl.dev/` (ADR-0001). Never touch `../strata-daemon/` (ADR-0003). Honor
    `architecture-constraints.md` (never block the main loop, St.Label only, …).
-5. **Flip + commit.** Run `./test-harness/verify.sh all` and require it green (every prior case,
+5. **🦷 Teeth — prove the test catches the bug.** A green test is worthless if it stays green when
+   the code is broken. After green, DELIBERATELY break the implementation (undo the exact line/behavior
+   the feature added) and re-run `./test-harness/verify.sh <id>`: it MUST go RED. If it stays green, the
+   test asserts an internal proxy, not the user-observable behavior — that is exactly how 011/012/013
+   shipped "green" while broken in the live session (they checked `get_key_focus`/a `set_text`→`get_text`
+   round-trip, not what the user sees / a real cross-client clipboard transfer). Rewrite the test until
+   breaking the code breaks the test; then restore the impl and confirm green.
+6. **Flip + commit.** Run `./test-harness/verify.sh all` and require it green (every prior case,
    not just `<id>`). Then set that feature's `passes:true`; `git commit --message "<id>: <title>"`
    (test + impl together); append a UTC-timestamped note (`date --utc +%Y-%m-%dT%H:%M:%SZ`) to
    `claude-progress.txt`. Next feature.

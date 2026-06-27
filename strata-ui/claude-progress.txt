@@ -5,6 +5,36 @@ Entries are headed with a UTC ISO-8601 timestamp (YYYY-MM-DDThh:mm:ssZ, from
 Harness: https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents
 
 ────────────────────────────────────────────────────────────────────────
+2026-06-27T18:06:56Z — RE-OPENING 011/012/013: headless-green but LIVE-BROKEN (GNOME 50)
+The loop built 011/012/013 and `verify.sh all` passed — yet all three fail in a real
+GNOME 50 session (Mutter / GTK 4.22 / Adw 1.9 / Wayland / Arch). Root cause of the
+ESCAPE: the tests were TOOTHLESS — they asserted internal proxies that stay green even
+when the user-visible behavior is broken. All three are re-opened (passes:false). Per
+coding-prompt.md step 5, the rewritten test for each MUST (a) assert the USER-OBSERVABLE
+behavior, not a proxy, and (b) be proven to bite — break the impl, confirm the case goes
+RED, or rewrite it. The existing 011/012/013 verify cases are toothless; replace them.
+- 012 PASTE-BACK: clicking a card sets the clipboard with a source pasting apps cannot
+  read -> "g-io-error-quark (15): No compatible transfer format found" -> content never
+  pastes (shelf closes via onPick, clipboard empty). The old test did a same-shell
+  St.Clipboard.set_text -> get_text round-trip (passes in-process, never a real transfer).
+  FIX: _writeClipboard (shelf.js) must offer the formats apps request — for text, the bytes
+  under MULTIPLE mimes (text/plain, text/plain;charset=utf-8, UTF8_STRING, STRING), the way
+  strata-daemon/src/clipboard/writer.rs does — not a bare set_text / single-mime
+  SelectionSourceMemory. TEST: a separate requester transfers the CLIPBOARD selection the
+  way a paste does and gets the bytes; prove RED on the current write.
+- 011 NAV: Left/Right do nothing visible. card.js:58 DOES add .strata-card-focused on
+  key-focus-in, so focus moves — user sees nothing. FIX: find why (is .strata-card-focused
+  visually a no-op in stylesheet.css? does moveFocus fire live?) and make selection visible.
+  TEST: after a real Right keystroke assert the focused card is VISIBLY selected (class
+  applied AND the stylesheet gives a real visual delta) and scrolled into view; prove RED
+  when moveFocus/highlight is broken — not merely that get_key_focus changed.
+- 013 GEAR: clicking the gear does not open prefs (no error captured yet; the prefs run in
+  a SEPARATE gjs process — reproduce: click gear, then `journalctl --user -b0 | grep -iE
+  'strata|prefs|adw|gjs'`). FIX prefs.js for GNOME 50 / Adw 1.9. TEST: drive the real
+  OpenExtensionPrefs path and assert prefs construct with NO error in the log; prove RED
+  when prefs.js is broken.
+
+────────────────────────────────────────────────────────────────────────
 2026-06-27T17:38:00Z — 014: Install docs: one Strata extension at a time (TDD red→green)
 - install.sh now steers the user to run exactly ONE Strata extension. Running both
   strata@edu4rdshl.dev and strata-ui@elijahlynn.net makes them fight over daemon

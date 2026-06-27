@@ -236,7 +236,7 @@
         "v1-spec.md",
         "ADR-0004"
       ],
-      "passes": true
+      "passes": false
     },
     {
       "id": "012",
@@ -257,7 +257,7 @@
         "reference/strata-daemon-dbus-contract.md",
         "strata@edu4rdshl.dev/ui/panel.js (_onItemActivated/_writeToClipboard)"
       ],
-      "passes": true
+      "passes": false
     },
     {
       "id": "013",
@@ -278,7 +278,7 @@
         "ADR-0001",
         "strata@edu4rdshl.dev/prefs.js"
       ],
-      "passes": true
+      "passes": false
     },
     {
       "id": "014",
