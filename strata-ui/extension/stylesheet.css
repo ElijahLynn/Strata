@@ -56,9 +56,29 @@
 .strata-card:hover {
   background-color: rgba(255, 255, 255, 0.09);
 }
+/* Keyboard-selected card (Left/Right nav, feature 011). It MUST read as clearly
+ * selected — navigation is invisible otherwise. Colour alone is unreliable: the
+ * default theme (and the `.strata-theme-light .strata-card` rule, two classes)
+ * out-specifies this single-class rule for background/border-color, so on a light
+ * desktop a colour-only focus style is a silent no-op. So we lead with an OUTLINE
+ * plus a thicker border — properties the theme rules don't set, which this rule
+ * always wins — and keep the blue tint where it does apply. */
 .strata-card-focused {
-  border-color: rgba(120, 170, 255, 0.85);
-  background-color: rgba(120, 170, 255, 0.16);
+  outline: 3px solid rgb(120, 170, 255);
+  outline-offset: -1px;
+  border-width: 2px;
+  border-color: rgb(120, 170, 255);
+  background-color: rgba(120, 170, 255, 0.22);
+}
+/* Per-theme tint, matched in specificity so it wins over `.strata-theme-* .strata-card`. */
+.strata-theme-dark .strata-card-focused {
+  background-color: rgba(120, 170, 255, 0.22);
+  border-color: rgb(120, 170, 255);
+}
+.strata-theme-light .strata-card-focused {
+  background-color: rgba(60, 120, 230, 0.20);
+  border-color: rgb(60, 120, 230);
+  outline-color: rgb(60, 120, 230);
 }
 .strata-card-body {
   padding: 14px;

@@ -596,11 +596,26 @@ case "$ID" in
 
   011)
     LU="Main.extensionManager.lookup('$UUID').stateObj"
-    # --- runtime: open with browse cards, drive REAL arrow keys through the
-    #     capture phase (the search entry must NOT swallow Left/Right) ---
+    # --- the live bug: Left/Right do NOTHING the user can SEE. card.js already adds
+    #     the .strata-card-focused class on key-focus-in and key focus DOES move on a
+    #     real Right keystroke — but the user sees no selection, because in the default
+    #     (light) theme the two-class `.strata-theme-light .strata-card` rule out-
+    #     specifies the single-class `.strata-card-focused` colour, so the highlight is
+    #     a silent no-op. The OLD test only checked get_key_focus() (an internal proxy)
+    #     and stayed green while the user saw nothing. This case asserts what the USER
+    #     SEES: the focused card's COMPUTED theme node differs visibly from an unfocused
+    #     card's, the focus class is applied, and the target scrolled into view. ---
+
+    # --- static: .strata-card-focused must be a non-empty rule carrying a VISIBLE
+    #     property (outline / border / background) — not an empty/commented no-op ---
+    foc="$(awk '/^\.strata-card-focused[[:space:]]*\{/{f=1} f{print} f&&/\}/{exit}' "$EXT/stylesheet.css")"
+    chk "$(printf '%s' "$foc" | grep -qsE '(outline|border|background)[^;]*:' && echo y || echo n)" "y" ".strata-card-focused declares a visible property (outline/border/background)"
+
+    # --- runtime: open with browse cards, drive REAL arrow keys through the capture
+    #     phase (the search entry must NOT swallow Left/Right) ---
     nested_eval "(function(){
       var e=$LU, sh=e._shelf;
-      globalThis._nM=[]; for (var i=0;i<6;i++) _nM.push({id:'n'+i,mime_type:'text/plain',content_text:'nav '+i,created_at:i,has_thumbnail:false});
+      globalThis._nM=[]; for (var i=0;i<12;i++) _nM.push({id:'n'+i,mime_type:'text/plain',content_text:'nav '+i,created_at:i,has_thumbnail:false});
       sh._fetchPage=function(o,l){ return Promise.resolve(_nM.slice(o,o+l)); };
       e._showVisor(); return 1;
     })()" >/dev/null 2>&1
@@ -611,9 +626,45 @@ case "$ID" in
     sleep 0.2
     nested_key Right; sleep 0.3
     chk "$(focuseq "$LU._shelf._cardBox.get_first_child()")" "1" "Right from search focuses the first card"
+
+    # USER-OBSERVABLE: the focused card carries the selection class AND its computed
+    # theme node differs VISIBLY from an unfocused card (outline / border-width /
+    # border-color / background). This is exactly what goes RED if .strata-card-focused
+    # is a visual no-op (the live bug) — get_key_focus moving is NOT enough.
+    chk "$(evnum "(function(){return $LU._shelf._cardBox.get_first_child().has_style_class_name('strata-card-focused')?1:0;})()")" "1" "the focused card carries .strata-card-focused"
+    visdelta="(function(){var St=imports.gi.St;
+      function sig(card){var t=card.get_theme_node();
+        var bc=t.get_border_color(St.Side.TOP), bg=t.get_background_color(), oc=t.get_outline_color();
+        return [t.get_outline_width(),oc.red,oc.green,oc.blue,oc.alpha,
+                t.get_border_width(St.Side.TOP),bc.red,bc.green,bc.blue,bc.alpha,
+                bg.red,bg.green,bg.blue,bg.alpha].join(',');}
+      var f=$LU._shelf._cardBox.get_first_child();
+      var u=$LU._shelf._cardBox.get_children()[3];   // an unfocused, off-to-the-right card
+      return (sig(f)!==sig(u))?1:0;})()"
+    chk "$(evnum "$visdelta")" "1" "the focused card looks VISIBLY different from an unfocused one (real CSS delta, not just key focus)"
+
     nested_key Right; sleep 0.3
     chk "$(focuseq "$LU._shelf._cardBox.get_children()[1]")" "1" "Right moves focus to the next card"
-    nested_key Left; sleep 0.2; nested_key Left; sleep 0.3
+
+    # SCROLL INTO VIEW: navigate several cards to the right (past the viewport edge) and
+    # assert the focused card's allocation now sits fully inside the scroll viewport.
+    nested_key Right; sleep 0.15; nested_key Right; sleep 0.15; nested_key Right; sleep 0.15
+    nested_key Right; sleep 0.15; nested_key Right; sleep 0.15; nested_key Right; sleep 0.3
+    chk "$(evnum "(function(){
+      var sh=$LU._shelf, adj=sh._scroll.get_hadjustment();
+      var c=sh._cardFromActor(global.stage.get_key_focus());
+      if(!c||adj.page_size<=0) return 0;
+      var b=c.get_allocation_box();
+      return (b.x1>=adj.value-1 && b.x2<=adj.value+adj.page_size+1)?1:0;
+    })()")" "1" "the navigated-to card is scrolled into view (allocation inside the viewport)"
+    chk "$(evnum "(function(){return $LU._shelf._scroll.get_hadjustment().value>0?1:0;})()")" "1" "navigating right actually scrolled the shelf (hadjustment moved off 0)"
+
+    # Left walks back: park focus on the first card, then a REAL Left keystroke steps
+    # off the front and the capture handler (moveFocus(-1)===false) hands focus back to
+    # the search box. Drives the real capture path with a real key, not an internal call.
+    nested_eval "(function(){global.stage.set_key_focus($LU._shelf._cardBox.get_first_child()); return 1;})()" >/dev/null 2>&1
+    sleep 0.2
+    nested_key Left; sleep 0.3
     chk "$(focuseq "$LU._searchEntry.get_clutter_text()")" "1" "Left off the first card returns focus to search"
     ;;
 

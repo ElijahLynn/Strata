@@ -76,7 +76,42 @@ that is why they stayed green while it was broken).
 
 Run: bash test-harness/verify.sh 012 ; bash test-harness/verify.sh 013
      bash test-harness/verify.sh all
-tasks.json: 012 + 013 → passes:true. (011 left passes:false — different bug.)
+tasks.json: 012 + 013 → passes:true.
+
+────────────────────────────────────────────────────────────────────────
+2026-06-27T19:14:18Z — 011 RE-FIXED: Keyboard navigation across the shelf (VISIBLE selection)
+Re-opened because Left/Right did nothing the user could SEE. Root cause, diagnosed in
+the nested shell by reading the COMPUTED theme node (not just get_key_focus):
+  • Key focus DOES move on a real Right keystroke and card.js already adds
+    .strata-card-focused on key-focus-in — so the bug was pure INVISIBILITY.
+  • .strata-card-focused changed only border-color + a faint background. But the headless
+    visor (and a real light desktop) resolves theme=auto → light, where the TWO-class rule
+    `.strata-theme-light .strata-card` (specificity 0,2,0) out-specifies the single-class
+    `.strata-card-focused` (0,1,0) for background/border-color. Proven: with a focused card,
+    the computed border-color/background were IDENTICAL to an unfocused card ([0,0,0,...]),
+    i.e. the focus colour was a silent no-op. Border-WIDTH and OUTLINE, which the theme rule
+    doesn't set, DID take — so the fix leans on those.
+FIX (stylesheet.css ONLY — no JS change needed; the capture handler + moveFocus already
+fire and scroll correctly, confirmed headlessly): .strata-card-focused now leads with a
+3px outline + 2px border (properties the theme can't out-specify) plus the blue tint, and
+adds specificity-matched `.strata-theme-dark/.strata-theme-light .strata-card-focused`
+tints so colour wins in both themes. Confirmed: focused card computes outline-width 3,
+opaque accent outline, border-width 2 vs an unfocused card's 0/1 — a real visible delta;
+nav moves focus, highlights, and scrolls the target into view.
+TEST REWRITTEN (verify.sh case 011) to assert the USER-OBSERVABLE result, replacing the
+toothless get_key_focus-only check: after a REAL Right keystroke the focused card (a) carries
+.strata-card-focused AND (b) its COMPUTED theme node differs visibly from an unfocused card
+(outline/border-width/border-color/background), (c) navigating right scrolls the target into
+the viewport (allocation inside [value, value+page_size]) and the hadjustment moved off 0,
+(d) Left off the first card returns focus to search; plus a static assert that
+.strata-card-focused is a non-empty rule with a visible property.
+TEETH (coding-prompt.md step 5), both proven RED:
+  • Revert .strata-card-focused to the old colour-only rule (the exact live bug) → the
+    "looks VISIBLY different" assertion goes RED while focus still moves. The old test stayed
+    fully green here — that is how it shipped broken.
+  • No-op moveFocus → every nav/scroll assertion goes RED.
+  Restored impl → GREEN. `verify.sh all` → 001-014 ALL GREEN.
+Run: bash test-harness/verify.sh 011   (suite: bash test-harness/verify.sh all)
 
 ────────────────────────────────────────────────────────────────────────
 2026-06-27T18:06:56Z — RE-OPENING 011/012/013: headless-green but LIVE-BROKEN (GNOME 50)
