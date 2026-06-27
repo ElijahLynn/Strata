@@ -275,12 +275,21 @@ export default class StrataUIExtension extends Extension {
      *  up, and wrap openPreferences() so a failure is logged loudly instead of
      *  looking like "the gear just closed the visor" (feature 013). */
     _onGearClicked() {
+        // Log so we can confirm the click reaches this handler at all (vs being eaten
+        // upstream). Then defer openPreferences() one idle tick: _hideVisor() pops the
+        // visor's modal grab, and calling openPreferences() mid-grab-teardown silently
+        // no-ops on GNOME 50 (no throw, no window). Opening after the grab is released
+        // lets the prefs window actually appear.
+        console.log('[Strata UI] gear clicked → opening preferences');
         this._hideVisor();
-        try {
-            this.openPreferences();
-        } catch (e) {
-            console.error('[Strata UI] failed to open preferences:', e);
-        }
+        GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+            try {
+                this.openPreferences();
+            } catch (e) {
+                console.error('[Strata UI] failed to open preferences:', e);
+            }
+            return GLib.SOURCE_REMOVE;
+        });
     }
 
     _toggleVisor() {
