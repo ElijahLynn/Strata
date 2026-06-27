@@ -40,21 +40,74 @@ Why this is strict: context is the bottleneck, not effort. A consistent,
 test-gated, one-slice-at-a-time loop is the only thing that lets a fresh agent
 resume safely and keeps fixed bugs from coming back.
 
+## Who runs the loop, and who does not
+
+There are two roles, and an agent must know which one it is:
+
+- The **autonomous loop agent** runs `coding-prompt.md` (via `loop.sh` and the
+  outer wrapper below) and BUILDS slices test-first. This is the only role that
+  edits `extension/`.
+- An **interactive assistant** (a chat/IDE session) helps design slices, wires up
+  the harness, reviews, and diagnoses. By default it does NOT build slices and
+  does NOT run the loop.
+
+When an interactive session turns up a bug or new work: capture it as a
+`tasks.json` slice and **hand off**. Do not freelance-fix it, and do not pre-empt
+the loop by building the slice yourself. "Continue", "keep going", or finishing a
+setup task is **not** permission to start building — the human decides who runs
+the loop and when; if that is unstated, ask. This rule exists because it was
+broken: an assistant asked only to set up the slices went and built two of them
+itself, spending the context and the loop run the human had reserved.
+
+## Running the loop (mechanics)
+
+`test-harness/loop.sh` is a SINGLE-SHOT despite the name: it execs one
+`claude --print "$(cat coding-prompt.md)"` agent. The looping is two layers:
+
+- **Inner** (one run): that agent works feature → feature per `coding-prompt.md`
+  (pick lowest `passes:false` → red → green → `verify.sh all` → flip → commit →
+  next) until all pass or it runs low on context, then stops clean and committed.
+- **Outer** (the actual loop): re-spawn a FRESH agent per iteration until nothing
+  is `passes:false`. This is what survives finite context:
+
+  ```sh
+  cd strata-ui; max=20; n=0
+  while jq -e '.features[]|select(.passes==false)' docs/tasks.json >/dev/null; do
+    n=$((n+1)); [ "$n" -gt "$max" ] && { echo "stopped at max $max"; break; }
+    bash test-harness/loop.sh
+  done
+  ```
+
+So "run the loop" means the outer wrapper; bare `loop.sh` is one iteration of it.
+
 ## What headless verify can and cannot catch
 
-`test-harness/verify.sh` boots a throwaway nested GNOME Shell, drives the
-extension over `Eval`, asserts real runtime state, and screenshots. It **does**
-exercise: clipboard capture via the Meta selection, real key events, focus,
-D-Bus seams (stub the proxy and record calls), and the live daemon signals.
+`test-harness/verify.sh` boots a throwaway nested GNOME Shell and can drive far
+more than its name suggests. Before marking anything "needs a human", assume it
+is scriptable and prove otherwise — most GUI actions are. It can:
 
-It **does not** cover: the Adw preferences window (it needs a display, so it can
-only be `node --check`-ed) and some Wayland-specific clipboard quirks. When a
-slice's behaviour falls in that gap, say so in its `steps`, assert as much as you
-can headlessly (a spy, a static grep, an end-to-end clipboard read-back), and add
-a manual live-session smoke step. **Never flip `passes` on a syntax-check alone** —
-that is how the prefs/gear bug shipped green, and why the 005 paste-back test
-passed while paste-back was broken in real use (it asserted an internal field,
-not the actual system clipboard).
+- send **real key events** (a virtual keyboard via `nested_key`, including
+  arrows / Enter / Escape), routed through the live grab and capture phase;
+- **set and read** the system clipboard (`St.Clipboard`) and the Meta selection —
+  so paste-back is checkable end-to-end (write it, then read it back), not by a
+  proxy field;
+- exercise **D-Bus seams** (stub the proxy and record calls) and the live daemon signals;
+- open the **real prefs window** via `org.gnome.Shell.Extensions.OpenExtensionPrefs`
+  on the nested bus (the same path `openPreferences()` takes) and assert prefs.js
+  loaded with no Adw error in the log — `node --check` catches only syntax, never a
+  runtime Adw API change;
+- **screenshot** the result.
+
+It genuinely cannot judge: pixel-level visual polish, and behaviour that only
+appears against real apps or the real Wayland session (e.g. a clipboard race with
+one specific app). For those, reproduce headlessly FIRST; a live smoke / journal
+is the fallback **only** when the headless result is already correct, never the
+default.
+
+**Never flip `passes` on a syntax-check or a spy alone** — that is how the
+prefs/gear bug shipped green, and why the 005 paste-back test passed while
+paste-back was broken in real use (it asserted an internal field, not the actual
+system clipboard).
 
 ## Orientation
 
