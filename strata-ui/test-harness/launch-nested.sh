@@ -6,26 +6,26 @@
 # Screenshot and Eval/drive it. The Strata daemon, when the extension under test
 # spawns it, writes to the temp profile — never your real clipboard.
 #
-# Source it for the functions, or run `launch-nested.sh --smoke [WxH]` to self-test
-# (bring up, screenshot, tear down).
+# Source it for the functions, or run `launch-nested.sh --smoke [WxH]` to self-test.
 #
-# Functions (after `nested_up`):
-#   nested_up [WxH] [EXTRA_EXT_DIR]   launch; exports NESTED_BUS, NESTED_TMP
-#   nested_eval "<js>"                run JS in the shell (returns gdbus output)
-#   nested_key  <Clutter.KEY_x>       press+release a key via a virtual device
-#   nested_type "<text>"              type a string (ascii)
-#   nested_screenshot <path.png>      capture the stage to a PNG
-#   nested_enable_ext <uuid>          enable an already-installed extension
-#   nested_down                       kill the shell and remove the temp profile
+# Reliability notes (learned the hard way):
+#   - The inner session writes its private bus address to a file; we never guess it
+#     with pgrep (which matched stale shells AND the pre-exec wrapper bash).
+#   - The session runs under setsid, so teardown kills the exact process group —
+#     no broad `pkill -f` (which self-matched our own command line) and no orphans.
+#   - Every gdbus call has --timeout 6 so nothing can stall on D-Bus's 25s default.
+#   - Do NOT call org.gnome.Shell.Extensions.EnableExtension on a headless shell:
+#     that service isn't running, so the call blocks the full 25s activation timeout.
+#     The helper auto-enables via enabled-extensions instead (unsafe mode on in ~1.7s).
 set -uo pipefail
 
 HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HELPER_SRC="$HARNESS_DIR/test-ext/strata-harness@local"
 HELPER_UUID="strata-harness@local"
 
-NESTED_TMP=""; NESTED_PID=""; NESTED_KEEPER=""; NESTED_BUS=""
+NESTED_TMP=""; NESTED_KEEPER=""; NESTED_BUS=""
 
-_ncall() { DBUS_SESSION_BUS_ADDRESS="$NESTED_BUS" gdbus call --session "$@"; }
+_ncall() { DBUS_SESSION_BUS_ADDRESS="$NESTED_BUS" gdbus call --session --timeout 6 "$@"; }
 
 nested_up() {
   local res="${1:-1280x720}" extra_ext="${2:-}"
@@ -42,59 +42,51 @@ nested_up() {
     cp -r "$extra_ext" "$extdir/"
     list="$list, '$(basename "$extra_ext")'"
   fi
-  # Pass the GVariant array + resolution as env vars so the inner shell expands
-  # them cleanly (no nested-quote juggling — that was the bug).
+  # Pass values via env so the inner session expands them (no nested-quote juggling).
   export NESTED_ENABLED="[$list]" NESTED_RES="$res"
+  export NESTED_BUSFILE="$NESTED_TMP/bus"
+  # Trim the nested session (small win; the big cost was the EnableExtension stall).
+  export NO_AT_BRIDGE=1 GTK_A11Y=none GVFS_DISABLE_FUSE=1
+  : > "$NESTED_BUSFILE"
 
-  # Background the private session running the headless shell.
-  ( dbus-run-session -- bash -c '
-      gsettings set org.gnome.shell disable-user-extensions false
-      gsettings set org.gnome.shell enabled-extensions "$NESTED_ENABLED"
-      exec gnome-shell --headless --virtual-monitor "$NESTED_RES" --wayland
-    ' >"$NESTED_TMP/shell.log" 2>&1 ) &
+  # Inner session as a script file — dodges all the nested-quoting traps.
+  cat > "$NESTED_TMP/session.sh" <<'EOS'
+#!/usr/bin/env bash
+gsettings set org.gnome.shell disable-user-extensions false
+gsettings set org.gnome.shell enabled-extensions "$NESTED_ENABLED"
+printf %s "$DBUS_SESSION_BUS_ADDRESS" > "$NESTED_BUSFILE"
+exec gnome-shell --headless --virtual-monitor "$NESTED_RES" --wayland
+EOS
+
+  # setsid → its own process group, so nested_down can kill the whole tree exactly.
+  setsid bash -c 'dbus-run-session -- bash "$1"' _ "$NESTED_TMP/session.sh" \
+    >"$NESTED_TMP/shell.log" 2>&1 &
   NESTED_KEEPER=$!
 
-  # Find the nested shell PID, then read its private bus address from /proc.
+  # Reliable bus: read what the inner session wrote.
   local i
-  for i in $(seq 1 120); do
-    NESTED_PID="$(pgrep -n -f 'gnome-shell.*--headless' || true)"
-    [ -n "$NESTED_PID" ] && break
+  for i in $(seq 1 100); do
+    [ -s "$NESTED_BUSFILE" ] && { NESTED_BUS="$(cat "$NESTED_BUSFILE")"; break; }
     kill -0 "$NESTED_KEEPER" 2>/dev/null || { echo "launch-nested: session died; see $NESTED_TMP/shell.log" >&2; return 1; }
-    sleep 0.3
+    sleep 0.2
   done
-  [ -n "$NESTED_PID" ] || { echo "launch-nested: no nested shell" >&2; return 1; }
-  NESTED_BUS="$(tr '\0' '\n' < "/proc/$NESTED_PID/environ" | sed -n 's/^DBUS_SESSION_BUS_ADDRESS=//p')"
   [ -n "$NESTED_BUS" ] || { echo "launch-nested: no nested bus" >&2; return 1; }
 
-  # Wait until the shell + screenshot service are up, then until unsafe mode is on.
-  for i in $(seq 1 120); do
-    _ncall --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus \
-      --method org.freedesktop.DBus.NameHasOwner org.gnome.Shell.Screenshot 2>/dev/null | grep -q true && break
-    sleep 0.3
-  done
-  # Belt-and-suspenders: explicitly enable the helper in case enabled-extensions
-  # didn't take, then wait (longer) until unsafe mode is actually on. Eval is itself
-  # gated by unsafe mode, so "Eval returns true" is the signal that the helper ran.
-  nested_enable_ext "$HELPER_UUID"
+  # Wait until unsafe mode is on (helper auto-enables; Eval is gated by it, so an
+  # Eval that returns true is the signal the shell is up AND the helper ran).
   local unsafe=0
-  for i in $(seq 1 100); do
+  for i in $(seq 1 80); do
     nested_eval "global.context.unsafe_mode" 2>/dev/null | grep -q "true" && { unsafe=1; break; }
-    sleep 0.3
+    sleep 0.2
   done
-  if [ "$unsafe" != 1 ]; then
-    echo "launch-nested: WARNING unsafe_mode not confirmed; screenshots/eval will fail" >&2
-    return 1
-  fi
-  echo "launch-nested: up (pid=$NESTED_PID, $res)" >&2
+  [ "$unsafe" = 1 ] || { echo "launch-nested: WARNING unsafe_mode not confirmed; aborting" >&2; return 1; }
+  echo "launch-nested: up ($res)" >&2
 }
 
 nested_eval() { _ncall --dest org.gnome.Shell --object-path /org/gnome/Shell --method org.gnome.Shell.Eval "$1"; }
 
 nested_screenshot() { _ncall --dest org.gnome.Shell.Screenshot --object-path /org/gnome/Shell/Screenshot \
   --method org.gnome.Shell.Screenshot.Screenshot true false "$1" >/dev/null; }
-
-nested_enable_ext() { _ncall --dest org.gnome.Shell.Extensions --object-path /org/gnome/Shell/Extensions \
-  --method org.gnome.Shell.Extensions.EnableExtension "$1" >/dev/null 2>&1 || true; }
 
 nested_key() {
   nested_eval "
@@ -116,11 +108,12 @@ nested_type() {
 }
 
 nested_down() {
-  [ -n "$NESTED_PID" ] && kill "$NESTED_PID" 2>/dev/null
-  [ -n "$NESTED_KEEPER" ] && kill "$NESTED_KEEPER" 2>/dev/null
-  pkill -f 'gnome-shell.*--headless' 2>/dev/null
+  if [ -n "$NESTED_KEEPER" ]; then
+    kill -- "-$NESTED_KEEPER" 2>/dev/null   # whole process group (setsid leader)
+    kill "$NESTED_KEEPER" 2>/dev/null
+  fi
   [ -n "$NESTED_TMP" ] && rm -rf "$NESTED_TMP"
-  NESTED_PID=""; NESTED_KEEPER=""; NESTED_BUS=""; NESTED_TMP=""
+  NESTED_KEEPER=""; NESTED_BUS=""; NESTED_TMP=""
 }
 
 # --- self-test ---------------------------------------------------------------
@@ -131,7 +124,6 @@ if [ "${1:-}" = "--smoke" ]; then
   nested_screenshot "$out"
   if [ -s "$out" ]; then
     echo "smoke: OK — $(file -b "$out")"
-    echo "SMOKE_SHOT=$out"
   else
     echo "smoke: FAILED — no screenshot" >&2; exit 1
   fi
