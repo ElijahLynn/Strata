@@ -3,6 +3,35 @@ Newest entries on top. Each coding session appends what it did + how to verify.
 Harness: https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents
 
 ────────────────────────────────────────────────────────────────────────
+2026-06-27 — 005: Select & copy-and-dismiss (TDD red→green, verified headlessly)
+- shelf.js: activate(card) copies + dismisses (ADR-0005, no auto-paste): optional
+  move-to-top (set_child_at_index 0, gated by move-activated-to-top), then
+  _pasteBack(id) and the onPick() dismiss callback. A _picking guard de-dupes
+  click+key double-fire (reset in load()). _pasteBack: _fetchContent seam
+  (GetItemContent → [mime,bytes]); _writeClipboard does text via
+  St.Clipboard.set_text and binary via Meta.SelectionSourceMemory + set_owner
+  (records _lastWrite for the harness). activatePick(focusActor) → focused card
+  (resolved by walking up via _cardFromActor) else top result; activateVisibleIndex(n)
+  → Nth viewport-visible card; moveFocus(±1) for Left/Right card nav.
+- extension.js: Shelf gets {onPick: ()=>_hideVisor()}. Visor key-press-event now
+  handles Return/KP_Enter (→ activatePick(focus); a focused card consumes Return
+  itself via its 'clicked', so the visor only sees it when focus is in search →
+  top), Alt+1..9 (→ activateVisibleIndex), Left/Right (→ moveFocus). The search
+  box's clutter_text 'activate' also copies the top result. cards wire 'clicked'
+  → activate (mouse + keyboard-on-card).
+- gschema: added move-activated-to-top (b, default true) — reused Strata key.
+- TEST FIRST: verify.sh case 005 stubs _fetchPage + _fetchContent (+_fetchThumbnail
+  for an image card), asserts Enter-on-focused copies that card's content to the
+  clipboard + dismisses, Enter-in-search copies top, Alt+3 copies 3rd visible,
+  image content takes the binary selection-owner path, move-to-top honored only
+  when on, a REAL Return keystroke copies top + dismisses, and statically that no
+  synthetic-paste machinery (notify_keyval/VirtualInputDevice/XTEST) exists in
+  extension/. RED before impl, GREEN after; 002/003/004 re-verified.
+- Run: bash test-harness/verify.sh 005   (shot: test-harness/screenshots/005.png)
+- NEXT ready: 006 (peek) / 007 (typed cards) / 009 (live signals) — blockedBy 002✓;
+  008 (settings/prefs) blockedBy 001✓.
+
+────────────────────────────────────────────────────────────────────────
 2026-06-27 — 004: Search (FTS5 prefix) (TDD red→green, verified headlessly)
 - extension.js: band is now vertical [header, shelf]. Header has an St.Entry
   search box (search-first); text-changed → shelf.setQuery(). On each summon the

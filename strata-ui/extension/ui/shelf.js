@@ -12,6 +12,7 @@
 
 import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';
+import Meta from 'gi://Meta';
 import St from 'gi://St';
 
 import { Card } from './card.js';
@@ -21,9 +22,10 @@ const LOAD_MORE_THRESHOLD = 200;  // px from the end that triggers the next page
 const SEARCH_DEBOUNCE_MS = 150;   // collapse rapid keystrokes into one query
 
 export class Shelf {
-    constructor(proxy, settings) {
+    constructor(proxy, settings, opts = {}) {
         this._proxy = proxy;
         this._settings = settings;
+        this._onPick = opts.onPick ?? null; // called to dismiss after a copy
 
         this._pageSize = settings.get_int('page-size');
         this._cardWidth = settings.get_int('card-width');
@@ -48,6 +50,10 @@ export class Shelf {
         /** @type {Set<string>} ids already fetched/in-flight, so a visible card
          *  is never re-requested while it stays on screen. */
         this._thumbRequested = new Set();
+
+        // Selection state (feature 005).
+        this._picking = false;   // de-dupes a pick (click + key, or doubled events)
+        this._lastWrite = null;  // last clipboard write {mime, binary, text?} (observable)
 
         // Observable by the test harness; also handy for debugging.
         this.renderStats = { batchSize: RENDER_BATCH, batches: 0, count: 0 };
@@ -101,6 +107,7 @@ export class Shelf {
         this._loadingMore = true;   // hold off scroll-driven loads until page 0 lands
         this._loadedOffset = 0;
         this._hasMore = true;
+        this._picking = false;      // a fresh summon can pick again
         this.renderStats.batches = 0;
         // Drop per-view thumbnail requests (cards are about to be rebuilt) but
         // keep the session path cache so a reopen re-applies without re-fetching.
@@ -235,6 +242,7 @@ export class Shelf {
     _appendCard(meta) {
         if (!meta || this._cards.has(meta.id)) return; // dedup
         const card = new Card(meta, { cardWidth: this._cardWidth });
+        card.connect('clicked', () => this.activate(card)); // mouse + keyboard-on-card
         this._cards.set(meta.id, card);
         this._cardBox.add_child(card);
         this.renderStats.count = this._cards.size;
@@ -331,6 +339,108 @@ export class Shelf {
             this._cards.delete(id);
             this.renderStats.count = this._cards.size;
         }
+    }
+
+    // -- Selection & copy-and-dismiss (feature 005, ADR-0005) ------------------
+
+    /** Pick a card given the current key-focus actor: the focused card, or — if
+     *  focus is still in the search box (or nowhere) — the top result. */
+    activatePick(focusActor) {
+        const card = this._cardFromActor(focusActor) ?? this._cardBox?.get_first_child() ?? null;
+        if (card) this.activate(card);
+    }
+
+    /** Copy the Nth (1-based) currently-visible card and dismiss. */
+    activateVisibleIndex(n) {
+        const card = this._visibleCards()[n - 1];
+        if (card) this.activate(card);
+    }
+
+    /** Copy a card to the system clipboard and dismiss. No auto-paste (ADR-0005):
+     *  we only set the clipboard; we never synthesize a paste into another app. */
+    activate(card) {
+        if (!card || this._picking) return;
+        this._picking = true; // guard against click+key double-fire
+        if (this._settings?.get_boolean('move-activated-to-top'))
+            this._cardBox?.set_child_at_index(card, 0);
+        this._pasteBack(card.strataId); // async; the copy completes in the background
+        this._onPick?.();               // dismiss now
+    }
+
+    /** Seam: fetch an item's full content from the daemon — GetItemContent(id)
+     *  → [mime, bytes]. Overridden in tests. */
+    async _fetchContent(id) {
+        const [mime, bytes] = await this._proxy.GetItemContentAsync(id);
+        return [mime, bytes];
+    }
+
+    async _pasteBack(id) {
+        try {
+            const [mime, bytes] = await this._fetchContent(id);
+            this._writeClipboard(mime, bytes);
+        } catch (e) {
+            console.error('[Strata UI] paste-back failed:', e);
+        }
+    }
+
+    /** Text → St.Clipboard.set_text; binary → Meta selection-owner. Never a
+     *  synthetic keystroke. */
+    _writeClipboard(mime, bytes) {
+        try {
+            if (mime.startsWith('text/') || mime === 'UTF8_STRING') {
+                const text = new TextDecoder('utf-8').decode(bytes);
+                St.Clipboard.get_default().set_text(St.ClipboardType.CLIPBOARD, text);
+                this._lastWrite = { mime, binary: false, text };
+            } else {
+                const source = Meta.SelectionSourceMemory.new(mime, GLib.Bytes.new(bytes));
+                global.display.get_selection().set_owner(
+                    Meta.SelectionType.SELECTION_CLIPBOARD, source);
+                this._lastWrite = { mime, binary: true };
+            }
+        } catch (e) {
+            console.error('[Strata UI] clipboard write failed:', e);
+        }
+    }
+
+    /** Move key focus between cards (Left/Right), scrolling the target into view. */
+    moveFocus(dir) {
+        const cards = this._cardBox ? this._cardBox.get_children() : [];
+        if (!cards.length) return;
+        let idx = cards.indexOf(global.stage.get_key_focus());
+        if (idx < 0) idx = dir > 0 ? -1 : cards.length; // entering from the search box
+        const card = cards[Math.max(0, Math.min(cards.length - 1, idx + dir))];
+        if (!card) return;
+        global.stage.set_key_focus(card);
+        this._ensureCardVisible(card);
+    }
+
+    _ensureCardVisible(card) {
+        const adj = this._scroll?.get_hadjustment();
+        if (!adj || adj.page_size <= 0) return;
+        const b = card.get_allocation_box();
+        if (b.x1 < adj.value) adj.value = b.x1;
+        else if (b.x2 > adj.value + adj.page_size) adj.value = b.x2 - adj.page_size;
+    }
+
+    /** Resolve the Card that owns `actor` (walking up), or null. */
+    _cardFromActor(actor) {
+        while (actor && actor !== this._cardBox) {
+            if (actor.strataId && this._cards.get(actor.strataId) === actor) return actor;
+            actor = actor.get_parent?.();
+        }
+        return null;
+    }
+
+    /** Cards whose allocation intersects the viewport, left-to-right. */
+    _visibleCards() {
+        const children = this._cardBox ? this._cardBox.get_children() : [];
+        const adj = this._scroll?.get_hadjustment();
+        if (!adj || adj.page_size <= 0) return children; // pre-layout fallback
+        const lo = adj.value, hi = adj.value + adj.page_size;
+        return children.filter(c => {
+            const b = c.get_allocation_box();
+            return (b.x2 - b.x1) > 0 && b.x2 > lo && b.x1 < hi;
+        });
     }
 
     destroy() {

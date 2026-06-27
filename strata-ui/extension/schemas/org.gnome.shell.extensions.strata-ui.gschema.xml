@@ -43,5 +43,11 @@
       <description>Also bounds search: SearchHistory returns up to this many matches. Reuses Strata's key (the rest of the reused keys land with the prefs UI in 008).</description>
     </key>
 
+    <key name="move-activated-to-top" type="b">
+      <default>true</default>
+      <summary>Move a picked item to the front of the shelf when selected</summary>
+      <description>Reuses Strata's key. When on, copying an item moves its card to position 1 for immediate feedback; the daemon also re-ranks it by recency on the re-copy.</description>
+    </key>
+
   </schema>
 </schemalist>

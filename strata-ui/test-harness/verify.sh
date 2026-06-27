@@ -182,6 +182,79 @@ case "$ID" in
     chk "$(evnum "(function(){return $LU._shelf._cards.has('x0')?1:0;})()")" "0" "stale search response is dropped (epoch guard)"
     ;;
 
+  005)
+    LU="Main.extensionManager.lookup('$UUID').stateObj"
+    # --- static asserts: paste-back via daemon; never synthesize a paste (ADR-0005) ---
+    chk "$(grep -rqs 'GetItemContentAsync' "$EXT/ui" && echo y || echo n)" "y" "paste-back fetches GetItemContent"
+    chk "$(grep -rqs 'set_text'            "$EXT/ui" && echo y || echo n)" "y" "text paste-back uses St.Clipboard.set_text"
+    chk "$(grep -rqs 'SelectionSourceMemory' "$EXT/ui" && echo y || echo n)" "y" "binary paste-back uses Meta.SelectionSourceMemory"
+    if grep -rqsE 'notify_keyval|VirtualInputDevice|XTEST' "$EXT"; then
+      echo "  FAIL: synthetic paste machinery found (must never paste into another app)"; fail=1
+    else echo "  ok  : no synthetic paste is ever sent to another app"; fi
+
+    # --- runtime: stub browse + content seams; exercise selection/copy/dismiss ---
+    nested_eval "(function(){
+      var e=$LU, sh=e._shelf;
+      globalThis._bM=[]; for (var i=0;i<6;i++) _bM.push({id:'b'+i,mime_type:'text/plain',content_text:'browse '+i,created_at:i,has_thumbnail:false});
+      _bM.push({id:'IMG',mime_type:'image/png',content_text:null,created_at:99,has_thumbnail:true});
+      globalThis._fc=[];
+      sh._fetchPage=function(o,l){ return Promise.resolve(_bM.slice(o,o+l)); };
+      sh._fetchThumbnail=function(id){ return Promise.resolve(new Uint8Array([137,80,78,71])); };
+      sh._fetchContent=function(id){
+        _fc.push(id);
+        if (id==='IMG') return Promise.resolve(['image/png', new Uint8Array([137,80,78,71,1,2,3])]);
+        return Promise.resolve(['text/plain', new TextEncoder().encode('CONTENT-'+id)]);
+      };
+      return 1;
+    })()" >/dev/null 2>&1
+    reopen(){ nested_eval "(function(){var e=$LU; e._hideVisor(); e._settings.set_boolean('move-activated-to-top', ${1:-false}); e._showVisor(); return 1;})()" >/dev/null 2>&1; sleep 0.4; }
+    fclast(){ evnum "(function(){var a=globalThis._fc; return (a.length && a[a.length-1]==='$1')?1:0;})()"; }
+
+    # Enter on a focused card copies THAT card and dismisses
+    reopen
+    nested_eval "(function(){var sh=$LU._shelf; sh.activatePick(sh._cards.get('b2')); return 1;})()" >/dev/null 2>&1
+    sleep 0.3
+    chk "$(fclast b2)" "1" "Enter copies the focused card (GetItemContent for it)"
+    chk "$(evnum "(function(){return ($LU._shelf._lastWrite && $LU._shelf._lastWrite.text==='CONTENT-b2')?1:0;})()")" "1" "focused card's text is written to the clipboard"
+    chk "$(evnum "(function(){return $LU._visorVisible?1:0;})()")" "0" "copying dismisses the visor"
+
+    # Enter while focus is still in search copies the TOP result
+    reopen
+    nested_eval "(function(){var sh=$LU._shelf; sh.activatePick(null); return 1;})()" >/dev/null 2>&1
+    sleep 0.3
+    chk "$(fclast b0)" "1" "Enter with focus in search copies the top result"
+
+    # Alt+3 copies the 3rd visible card
+    reopen
+    nested_eval "(function(){$LU._shelf.activateVisibleIndex(3); return 1;})()" >/dev/null 2>&1
+    sleep 0.3
+    chk "$(fclast b2)" "1" "Alt+N copies the Nth visible card (3rd => b2)"
+
+    # binary paste-back goes through Meta.SelectionSourceMemory, not set_text
+    reopen
+    nested_eval "(function(){var sh=$LU._shelf; sh.activate(sh._cards.get('IMG')); return 1;})()" >/dev/null 2>&1
+    sleep 0.3
+    chk "$(evnum "(function(){return ($LU._shelf._lastWrite && $LU._shelf._lastWrite.binary===true)?1:0;})()")" "1" "binary content uses the selection-owner path (no set_text)"
+
+    # move-activated-to-top honored only when the setting is on
+    reopen true
+    nested_eval "(function(){var sh=$LU._shelf; sh.activatePick(sh._cards.get('b3')); return 1;})()" >/dev/null 2>&1
+    sleep 0.3
+    chk "$(evnum "(function(){return ($LU._shelf._cardBox.get_first_child().strataId==='b3')?1:0;})()")" "1" "move-activated-to-top ON: picked card jumps to the front"
+    reopen false
+    nested_eval "(function(){var sh=$LU._shelf; sh.activatePick(sh._cards.get('b3')); return 1;})()" >/dev/null 2>&1
+    sleep 0.3
+    chk "$(evnum "(function(){return ($LU._shelf._cardBox.get_first_child().strataId==='b0')?1:0;})()")" "1" "move-activated-to-top OFF: order is unchanged"
+
+    # real keystroke: Return with the search box focused copies the top result + dismisses
+    reopen
+    nested_eval "(function(){ globalThis._fc=[]; return 1; })()" >/dev/null 2>&1
+    nested_key Return
+    sleep 0.3
+    chk "$(fclast b0)" "1" "a real Return keystroke (focus in search) copies the top result"
+    chk "$(evnum "(function(){return $LU._visorVisible?1:0;})()")" "0" "the real Return keystroke also dismisses"
+    ;;
+
   *) echo "  note: no feature-specific checks for $ID (generic only)";;
 esac
 

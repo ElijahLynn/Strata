@@ -109,11 +109,16 @@ export default class StrataUIExtension extends Extension {
         this._searchEntry.get_clutter_text().connect('text-changed', () => {
             this._shelf?.setQuery(this._searchEntry.get_text());
         });
+        // Enter while typing copies the top result (focus never left the box).
+        this._searchEntry.get_clutter_text().connect('activate', () => {
+            this._shelf?.activatePick(null);
+        });
         header.add_child(this._searchEntry);
 
         // The shelf renders clipboard history as a horizontal band of cards,
-        // paginated from the daemon and loaded on each open.
-        this._shelf = new Shelf(this._proxy, this._settings);
+        // paginated from the daemon and loaded on each open. onPick dismisses
+        // the visor after a copy.
+        this._shelf = new Shelf(this._proxy, this._settings, {onPick: () => this._hideVisor()});
 
         this._band.add_child(header);
         this._band.add_child(this._shelf.actor);
@@ -122,8 +127,27 @@ export default class StrataUIExtension extends Extension {
         Main.layoutManager.addChrome(this._visor);
 
         this._visor.connect('key-press-event', (_actor, event) => {
-            if (event.get_key_symbol() === Clutter.KEY_Escape) {
+            const sym = event.get_key_symbol();
+            const state = event.get_state();
+            if (sym === Clutter.KEY_Escape) {
                 this._hideVisor();
+                return Clutter.EVENT_STOP;
+            }
+            // Enter reaches the visor only when no card consumed it (i.e. focus is
+            // in the search box or nowhere) → copy the top result.
+            if (sym === Clutter.KEY_Return || sym === Clutter.KEY_KP_Enter) {
+                this._shelf?.activatePick(global.stage.get_key_focus());
+                return Clutter.EVENT_STOP;
+            }
+            // Alt+1…9 → copy the Nth visible card (Alt so plain digits type into search).
+            if ((state & Clutter.ModifierType.MOD1_MASK) &&
+                sym >= Clutter.KEY_1 && sym <= Clutter.KEY_9) {
+                this._shelf?.activateVisibleIndex(sym - Clutter.KEY_1 + 1);
+                return Clutter.EVENT_STOP;
+            }
+            // Left/Right move focus into and across the shelf.
+            if (sym === Clutter.KEY_Left || sym === Clutter.KEY_Right) {
+                this._shelf?.moveFocus(sym === Clutter.KEY_Right ? 1 : -1);
                 return Clutter.EVENT_STOP;
             }
             return Clutter.EVENT_PROPAGATE;
