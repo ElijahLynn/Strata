@@ -5,6 +5,80 @@ Entries are headed with a UTC ISO-8601 timestamp (YYYY-MM-DDThh:mm:ssZ, from
 Harness: https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents
 
 ────────────────────────────────────────────────────────────────────────
+2026-06-27T19:27:58Z — 012 + 013: ONE root-caused bug — the visor click-dismiss handler ate card & gear clicks (band Y, not X)
+
+REAL ROOT CAUSE (one bug, unifying 012 and 013). The visor's button-press-event
+handler in extension.js decided "click landed outside the band → dismiss" with:
+    const [bandY] = this._band.get_transformed_position();   // index 0 = X, not Y!
+    const bandH = this._band.get_height();
+    if (y < bandY || y > bandY + bandH) this._hideVisor();
+get_transformed_position() returns [x, y]; `[bandY]` grabbed X (≈0). On a
+BOTTOM-anchored visor (the default) the band, its cards, and the gear all sit at a
+large y, so `y > bandY + bandH` was ALWAYS true → the handler hideVisor'd AND
+returned EVENT_STOP on the button PRESS, before the card's `clicked` → activate →
+copy (012) or the gear's `clicked` → _onGearClicked → openPreferences (013) could
+run. So clicking a card OR the gear instantly dismissed with NO action:
+  - 012 "click closes the shelf, nothing copied" — the SAME bug as
+  - 013 "the gear just closes the visor".
+
+This CORRECTS the superseded hypotheses in the 2026-06-27T18:06:56Z RE-OPENING entry:
+  - 012 was NOT a clipboard-format / multi-mime transfer problem (writer offered a
+    readable format fine); the click never reached activate() at all.
+  - 013 was NOT an Adw 1.9 incompatibility (prefs.js constructs clean under the live
+    libadwaita — the 013 prefs-construct check still passes); the click never reached
+    _onGearClicked at all.
+  (011 NAV is a DIFFERENT, still-open bug — untouched here.)
+
+THE FIX (extension.js button-press-event). Dropped the fragile coordinate math.
+Decide by an honest hit-test of the press point:
+    const [x, y] = event.get_coords();
+    const hit = global.stage.get_actor_at_pos(Clutter.PickMode.REACTIVE, x, y);
+    if (hit && this._band.contains(hit)) return Clutter.EVENT_PROPAGATE; // card/gear/search
+    this._hideVisor(); return Clutter.EVENT_STOP;                        // bare backdrop
+NB: the prompt's suggested `event.get_source() === this._visor` test does NOT work in
+the nested shell — get_source() comes back null for every synthesized press (verified
+by logging the real handler), so it can't distinguish backdrop from band-children.
+get_actor_at_pos + band.contains() is reliable (logged hit = CARD / .strata-gear /
+VISOR exactly as expected).
+
+TEST FIRST, with REAL synthesized mouse clicks (the old 012/013 cases called
+activate()/the gear handler directly via Eval, so they never exercised this handler —
+that is why they stayed green while it was broken).
+  - launch-nested.sh: NEW nested_click / nested_click_xy pointer driver, modeled on
+    nested_key but using a Clutter virtual POINTER device. Two headless quirks were
+    found by reading back global.get_pointer() and fixed in the driver: (1) a single
+    notify_absolute_motion to a fresh target only applies the X delta (Y lands on the
+    next motion) → send the target motion twice; (2) Mutter only re-picks under the
+    pointer when the position CHANGES → hop via (0,0) first. Motion/press/release are
+    separate Eval calls with a settle (Clutter dispatches input on the main loop; a
+    press+release in one synchronous call coalesces and the release is lost, so an
+    St.Button inside a ScrollView never 'clicked's).
+  - Headless caveat (NOT the bug): under a Mutter modal grab the synthesized
+    virtual-pointer events reach only the grab actor (the visor), never its children,
+    so a card/gear 'clicked' can't fire. The 012/013 cases drop the modal grab after
+    _showVisor (popModal) — the visor stays visible and its button-press-event handler
+    stays WIRED, so the click still goes THROUGH the handler into the card/gear. Real
+    hardware events under the grab DO reach the children (that is how the user clicks);
+    only synthetic-input routing differs.
+  - verify.sh 012: seed 4 real daemon items A<B<C<D (newest-first D,C,B,A), open
+    browse on a bottom visor, drop a SENTINEL on the real clipboard, synthesize a REAL
+    primary click on the NON-top card B, then read the REAL nested-session clipboard:
+    assert _lastWrite is B's content AND the system clipboard holds B (end-to-end),
+    not the sentinel and not the most-recent D.
+  - verify.sh 013: spy openPreferences on the extension stateObj, open the visor on a
+    bottom edge, drop the grab, synthesize a REAL click on the gear, assert
+    openPreferences was invoked. Kept the static _onGearClicked try/catch/log/order
+    checks and the in-process prefs-construct check.
+  - TEETH: reverted the handler to the buggy `[bandY]` index → BOTH 012 and 013 went
+    RED (012: the click is eaten, _lastWrite empty, clipboard still the pre-click
+    SENTINEL; 013: openPreferences never called). Restored the fix → both GREEN.
+  - `./test-harness/verify.sh all` → ALL GREEN (001–014); no regressions.
+
+Run: bash test-harness/verify.sh 012 ; bash test-harness/verify.sh 013
+     bash test-harness/verify.sh all
+tasks.json: 012 + 013 → passes:true. (011 left passes:false — different bug.)
+
+────────────────────────────────────────────────────────────────────────
 2026-06-27T18:06:56Z — RE-OPENING 011/012/013: headless-green but LIVE-BROKEN (GNOME 50)
 The loop built 011/012/013 and `verify.sh all` passed — yet all three fail in a real
 GNOME 50 session (Mutter / GTK 4.22 / Adw 1.9 / Wayland / Arch). Root cause of the

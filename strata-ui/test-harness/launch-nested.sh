@@ -107,6 +107,72 @@ nested_type() {
   done
 }
 
+# nested_click_xy <x> <y>
+# Synthesize a REAL primary mouse click at absolute stage coords (x,y) with a
+# Clutter virtual POINTER device (mirrors nested_key's virtual KEYBOARD). The three
+# notifies — motion, button-PRESSED, button-RELEASED — are issued as SEPARATE Eval
+# calls with a settle between them: Clutter dispatches input on the main loop, so a
+# press+release fired back-to-back in one synchronous call (same timestamp, no loop
+# turn) gets coalesced and an St.Button inside a ScrollView never sees the release →
+# no 'clicked'. Separate calls let each event run a main-loop turn, the way a real
+# click does. Drives the actual button-press/-release chain through the visor's
+# handlers (NOT a direct activate()/handler call), so a coordinate bug in a
+# button-press handler is genuinely exercised.
+nested_click_xy() {
+  local x="$1" y="$2"
+  # Land the virtual pointer on (x,y), then PRESS + RELEASE.
+  #
+  # Two non-obvious quirks of the headless virtual pointer, both learned by reading
+  # back global.get_pointer():
+  #  1) A single notify_absolute_motion to a fresh target only applies the X delta —
+  #     the first event after a position change drops the Y axis (pointer lands at
+  #     [x, oldY]). A SECOND motion to the same (x,y) settles Y. So we send the
+  #     target motion twice.
+  #  2) Mutter only re-picks the actor under the pointer when the position actually
+  #     CHANGES, so we hop via (0,0) first to guarantee the target motion is a real
+  #     move (a click at wherever the pointer already sat would land on a stale
+  #     actor and the target St.Button — especially one inside a ScrollView — would
+  #     never see the press).
+  # Each notify is its own Eval with a settle: Clutter dispatches input on the main
+  # loop, so a press+release fired back-to-back in one synchronous call (no loop
+  # turn) gets coalesced and the release is lost. Drives the real button-press/
+  # -release chain THROUGH the visor's handler — not a direct activate()/handler
+  # call — so a coordinate bug in that handler is genuinely exercised.
+  nested_eval "(function(){
+    const C = imports.gi.Clutter;
+    if (!global._hp) global._hp = C.get_default_backend().get_default_seat()
+        .create_virtual_device(C.InputDeviceType.POINTER_DEVICE);
+    global._hp.notify_absolute_motion(global.get_current_time(), 0, 0);
+    return 1;
+  })()" >/dev/null
+  sleep 0.1
+  nested_eval "global._hp.notify_absolute_motion(global.get_current_time(), $x, $y)" >/dev/null
+  sleep 0.1
+  nested_eval "global._hp.notify_absolute_motion(global.get_current_time(), $x, $y)" >/dev/null
+  sleep 0.1
+  nested_eval "global._hp.notify_button(global.get_current_time(), imports.gi.Clutter.BUTTON_PRIMARY, imports.gi.Clutter.ButtonState.PRESSED)" >/dev/null
+  sleep 0.1
+  nested_eval "global._hp.notify_button(global.get_current_time(), imports.gi.Clutter.BUTTON_PRIMARY, imports.gi.Clutter.ButtonState.RELEASED)" >/dev/null
+  sleep 0.1
+}
+
+# nested_click <js-expr-returning-an-actor>
+# Click the on-screen centre of the actor that <js-expr> evaluates to. Resolves the
+# actor's absolute stage rectangle via get_transformed_position()+_size(), then
+# delegates to nested_click_xy.
+nested_click() {
+  local cxy
+  cxy="$(nested_eval "(function(){
+    const a = ($1);
+    if (!a) return 'no-actor';
+    const [ax, ay] = a.get_transformed_position();
+    const [aw, ah] = a.get_transformed_size();
+    return Math.round(ax + aw / 2) + ' ' + Math.round(ay + ah / 2);
+  })()" 2>/dev/null | grep -oE '[0-9]+ [0-9]+' | head -1)"
+  [ -n "$cxy" ] || { echo "nested_click: could not resolve actor center" >&2; return 1; }
+  nested_click_xy $cxy
+}
+
 nested_down() {
   if [ -n "$NESTED_KEEPER" ]; then
     kill -- "-$NESTED_KEEPER" 2>/dev/null   # whole process group (setsid leader)

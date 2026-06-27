@@ -230,13 +230,24 @@ export default class StrataUIExtension extends Extension {
             // because the search entry would otherwise swallow them for its cursor.
             return Clutter.EVENT_PROPAGATE;
         });
-        // Click on the layer but outside the band → dismiss.
+        // Click on the bare backdrop (outside the band) → dismiss.
         this._visor.connect('button-press-event', (_actor, event) => {
-            const [, y] = event.get_coords();
-            const [bandY] = this._band.get_transformed_position();
-            const bandH = this._band.get_height();
-            if (y < bandY || y > bandY + bandH)
-                this._hideVisor();
+            const [x, y] = event.get_coords();
+            const hit = global.stage.get_actor_at_pos(Clutter.PickMode.REACTIVE, x, y);
+            // Only the bare backdrop dismisses: if the press landed on the band or
+            // anything inside it (a card, the gear, the search box), PROPAGATE so
+            // that actor handles it. Decide by an honest hit-test of the press
+            // point, not by coordinate math against the band rectangle — the old
+            // `[bandY]` code read get_transformed_position()'s X (≈0) instead of its
+            // Y, so on a bottom-anchored visor every card/gear/search press (large
+            // y) looked "outside the band" and dismissed before the click could act.
+            // That one bug broke BOTH paste-back (012) and the gear (013): the press
+            // hideVisor'd and EVENT_STOP'd, so the card's copy and the gear's
+            // openPreferences never ran. (get_source() can't be used here: in the
+            // headless nested shell it comes back null for every synthesized press.)
+            if (hit && this._band.contains(hit))
+                return Clutter.EVENT_PROPAGATE;
+            this._hideVisor();
             return Clutter.EVENT_STOP;
         });
     }

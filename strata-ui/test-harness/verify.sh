@@ -619,11 +619,23 @@ case "$ID" in
 
   012)
     LU="Main.extensionManager.lookup('$UUID').stateObj"
-    # --- end-to-end paste-back: REAL daemon items, activate a NON-top card, read
-    #     back the REAL nested-session clipboard. The 005 test only asserted the
-    #     internal _lastWrite, so the live "pasted the most-recent entry" race went
-    #     unseen. Here the clipboard write must complete BEFORE the visor dismisses;
-    #     otherwise a paste landing in the gap grabs the top-of-history entry. ---
+    # --- paste-back, driven by a REAL synthesized mouse CLICK on the card. ---
+    # The old 012 test called sh.activate(card) directly via Eval, so it never went
+    # through the visor's button-press-event handler — which is exactly where the
+    # live bug lived: that handler read get_transformed_position()'s X (`[bandY]`)
+    # instead of Y, so on a bottom-anchored visor a press on any card looked
+    # "outside the band" → it hideVisor'd + EVENT_STOP'd, eating the click before the
+    # card's `clicked` → activate → copy could run. Clicking with a real virtual
+    # POINTER device (launch-nested.sh nested_click) re-creates the user gesture and
+    # bites: RED on the buggy handler (nothing is copied), GREEN on the fix.
+    #
+    # Headless caveat (NOT the bug): under a Mutter modal grab the synthesized
+    # virtual-pointer events reach only the grab actor (the visor), never its
+    # children, so the card's `clicked` can't fire. We therefore drop the modal grab
+    # after _showVisor — the visor stays visible and its button-press-event handler
+    # stays wired, so the click still goes THROUGH the handler into the card. Real
+    # hardware events under the grab DO reach the card (that is how the user clicks
+    # cards); only the synthetic-input routing differs.
 
     # wait for the daemon proxy to come up (real GetItemContent path, not a stub)
     for i in $(seq 1 40); do
@@ -633,9 +645,12 @@ case "$ID" in
 
     # seed the (isolated, throwaway) daemon with 4 known text items A<B<C<D by age,
     # so newest-first history is D,C,B,A. Capture is off so paste-back is isolated.
+    # Force a bottom-anchored visor: that is the default AND the orientation where
+    # the `[bandY]` X-vs-Y bug fires (cards sit at large y, bandY=X≈0).
     nested_eval "(function(){
       var e=$LU, P=e._proxy, G=imports.gi.GLib;
       e._disconnectClipboardMonitor();
+      e._settings.set_string('visor-edge','bottom');
       globalThis._setup=0;
       P.ClearHistoryRemote(function(){
         var Ls=['A','B','C','D'];
@@ -663,50 +678,50 @@ case "$ID" in
     chk "$(evnum "(function(){return (globalThis._h&&_h[0].content_text==='STRATA012-D')?1:0;})()")" "1" "history is newest-first (top = last submitted, D)"
     chk "$(evnum "(function(){return (globalThis._h&&_h[2].content_text==='STRATA012-B')?1:0;})()")" "1" "the non-top target (index 2) is the older B"
 
-    # open browse so the real history renders into cards
-    nested_eval "(function(){ $LU._showVisor(); return 1; })()" >/dev/null 2>&1
-    sleep 1.0
+    # open browse so the real history renders into cards, then drop the modal grab
+    # (headless synthetic-input routing only — see header).
+    nested_eval "(function(){ var e=$LU; if(e._visorVisible)e._hideVisor(); e._showVisor(); if(e._grab){imports.ui.main.popModal(e._grab); e._grab=null;} return 1; })()" >/dev/null 2>&1
+    sleep 1.2
 
-    # instrument the ORDER of (clipboard write) vs (dismiss), drop a sentinel on the
-    # real clipboard, then activate the NON-top card B
+    # drop a sentinel on the real clipboard, then synthesize a REAL primary click on
+    # the NON-top card B (index 2). The click travels through the visor's
+    # button-press handler exactly as a user's click does.
     nested_eval "(function(){
       var e=$LU, sh=e._shelf, St=imports.gi.St;
-      globalThis._seq=[];
       globalThis._target=globalThis._h[2];          // STRATA012-B, NOT the top
-      var ow=sh._writeClipboard.bind(sh);
-      sh._writeClipboard=function(m,b){ globalThis._seq.push('write'); return ow(m,b); };
-      var op=sh._onPick;
-      sh._onPick=function(){ globalThis._seq.push('dismiss'); return op&&op(); };
+      sh._lastWrite=null;
       St.Clipboard.get_default().set_text(St.ClipboardType.CLIPBOARD,'SENTINEL-NOPE');
       var card=sh._cards.get(globalThis._target.id);
       globalThis._hadcard=card?1:0;
-      if(card) sh.activate(card);
       return globalThis._hadcard;
     })()" >/dev/null 2>&1
-    sleep 0.8
-    chk "$(evnum "(function(){return globalThis._hadcard;})()")" "1" "the non-top card B is present to activate"
+    chk "$(evnum "(function(){return globalThis._hadcard;})()")" "1" "the non-top card B is present to click"
 
-    # the live bug: paste-back fires un-awaited and the visor dismisses first, so the
-    # clipboard is still the old value during the window a paste would land. The
-    # write MUST precede the dismiss.
-    chk "$(evnum "(function(){var s=globalThis._seq;return (s.length>=2&&s[0]==='write')?1:0;})()")" "1" "clipboard is written BEFORE the visor dismisses (no paste-the-most-recent race)"
+    nested_click "$LU._shelf._cards.get(globalThis._target.id)"
+    sleep 0.8
+
+    # the click must have reached the card and copied — NOT been eaten by the visor's
+    # dismiss handler. _lastWrite is the proof the activate()/paste-back path ran.
+    chk "$(evnum "(function(){return ($LU._shelf._lastWrite&&$LU._shelf._lastWrite.text===globalThis._target.content_text)?1:0;})()")" "1" "a REAL click on card B ran activate→paste-back (shelf._lastWrite is B's content)"
 
     # end-to-end: the REAL system clipboard now holds the CHOSEN entry, not the top
     nested_eval "(function(){var St=imports.gi.St;globalThis._clip='<unread>';St.Clipboard.get_default().get_text(St.ClipboardType.CLIPBOARD,function(c,t){globalThis._clip=t;});return 1;})()" >/dev/null 2>&1
     sleep 0.4
     chk "$(evnum "(function(){return (globalThis._clip===globalThis._target.content_text)?1:0;})()")" "1" "system clipboard holds the CHOSEN card's content (end-to-end read-back of B)"
+    chk "$(evnum "(function(){return (globalThis._clip==='SENTINEL-NOPE')?1:0;})()")" "0" "the click was not eaten (clipboard is no longer the pre-click sentinel)"
     chk "$(evnum "(function(){return (globalThis._clip===globalThis._h[0].content_text)?1:0;})()")" "0" "clipboard is NOT the most-recent entry (D)"
     ;;
 
   013)
     LU="Main.extensionManager.lookup('$UUID').stateObj"
-    # --- the live bug was: gear closes the visor but no prefs window appears, with
-    #     NOTHING logged to debug it. The OpenExtensionPrefs D-Bus path can't catch a
-    #     prefs.js construction failure here (the prefs window is built in a separate
-    #     process whose errors never reach this shell's log — verified: a deliberately
-    #     broken prefs.js still returned success with no log error). So we (1) build
-    #     the REAL prefs UI in-process against the running libadwaita, and (2) require
-    #     _onGearClicked to stop failing silently. ---
+    # --- the live bug: clicking the gear "just closes the visor" and no prefs open.
+    #     SAME root cause as 012 — the visor's button-press-event handler read
+    #     get_transformed_position()'s X (`[bandY]`) instead of Y, so on a
+    #     bottom-anchored visor a press on the gear (large y) looked "outside the
+    #     band" → hideVisor + EVENT_STOP, eating the click before the gear's `clicked`
+    #     → _onGearClicked → openPreferences could run. The old 013 test called
+    #     _onGearClicked() directly, never exercising that handler, so it passed while
+    #     the gear was broken. Here we synthesize a REAL click on the gear. ---
 
     # --- static: _onGearClicked must drop the modal first, then open prefs inside a
     #     try/catch that logs (no more silent "the gear just closed the visor") ---
@@ -718,14 +733,26 @@ case "$ID" in
     # the visor is hidden BEFORE openPreferences (opening must not depend on the grab)
     chk "$(printf '%s' "$gear" | awk '/_hideVisor/{h=NR} /openPreferences/{o=NR} END{print (h&&o&&h<o)?"y":"n"}')" "y" "_hideVisor() runs before openPreferences() (prefs do not depend on the modal)"
 
-    # --- runtime (nested shell): the gear is a real St.Button and its handler still
-    #     calls openPreferences() — keep the 008 spy contract ---
-    nested_eval "(function(){ var e=$LU; globalThis._po=0; e.openPreferences=function(){ globalThis._po++; }; return 1; })()" >/dev/null 2>&1
+    # --- runtime (nested shell): a REAL click on the gear must reach _onGearClicked →
+    #     openPreferences (spied), NOT be eaten by the visor's dismiss handler. ---
+    # Bottom-anchored visor: the orientation where the `[bandY]` X-vs-Y bug fires.
+    # Drop the modal grab after _showVisor (headless synthetic-input routing only,
+    # see the 012 header) so the synthesized click reaches the gear; the click still
+    # travels THROUGH the visor's button-press handler.
     chk "$(evnum "(function(){return ($LU._gearButton instanceof imports.gi.St.Button)?1:0;})()")" "1" "header has a gear St.Button"
-    nested_eval "(function(){ $LU._onGearClicked(); return 1; })()" >/dev/null 2>&1
-    sleep 0.3
-    chk "$(evnum "globalThis._po")" "1" "the gear handler calls openPreferences()"
-    chk "$(evnum "(function(){return $LU._visorVisible?1:0;})()")" "0" "the gear handler also dismisses the visor"
+    nested_eval "(function(){
+      var e=$LU;
+      globalThis._po=0; e.openPreferences=function(){ globalThis._po++; };
+      e._settings.set_string('visor-edge','bottom');
+      if(e._visorVisible)e._hideVisor();
+      e._showVisor();
+      if(e._grab){ imports.ui.main.popModal(e._grab); e._grab=null; }
+      return 1;
+    })()" >/dev/null 2>&1
+    sleep 0.8
+    nested_click "$LU._gearButton"
+    sleep 0.5
+    chk "$(evnum "globalThis._po")" "1" "a REAL click on the gear invokes openPreferences() (click not eaten by the dismiss handler)"
 
     # --- the real test: construct the WHOLE prefs UI (both pages + the shortcut
     #     dialog) against the running GNOME's libadwaita. RED if prefs.js throws under
