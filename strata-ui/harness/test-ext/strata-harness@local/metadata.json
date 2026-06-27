@@ -1,0 +1,6 @@
+{
+  "uuid": "strata-harness@local",
+  "name": "Strata Harness",
+  "description": "Test-harness helper. Enabled ONLY in the disposable headless nested shell the autonomous loop spawns; never in a real session. Enables unsafe mode so the loop can screenshot and Eval/drive the nested shell.",
+  "shell-version": ["46", "47", "48", "49", "50"]
+}

@@ -51,7 +51,7 @@ When done:
   - Do NOT set passes=true in tasks.json — a human flips it after a live GNOME test.
 EOF
 
-claude -p "$PROMPT" --permission-mode acceptEdits
+claude -p "$PROMPT" --dangerously-skip-permissions
 
 echo
 echo "==> $next implemented + committed. TEST it in a live GNOME session:"
