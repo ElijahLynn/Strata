@@ -18,14 +18,14 @@ not freelance fixes from a chat request — even an obvious one-line bug.
    bug that only lives in a chat message is a bug that the next agent will reintroduce.
 
 2. **Every slice carries a headless test step.** A slice is not done until
-   `bash test-harness/verify.sh <id>` proves it. When a bug reached a human, the
+   `./test-harness/verify.sh <id>` proves it. When a bug reached a human, the
    first step of its fix-slice is *"add a verify.sh case that reproduces it (RED)"*.
    A fix with no failing-test-first is not allowed — shipping fixes that way is
    exactly how the capture, navigation, paste-back, and gear bugs escaped.
 
 3. **TDD red → green, then flip `passes`, then commit.** Write the test, watch it
    fail, implement in `extension/`, watch it pass, then **run the whole suite —
-   `bash test-harness/verify.sh all` — and require it green** (every prior case,
+   `./test-harness/verify.sh all` — and require it green** (every prior case,
    not just the one you touched; that is what stops regressions). Then set
    `passes:true`, append an entry to `claude-progress.txt` headed by a UTC
    ISO-8601 timestamp (`YYYY-MM-DDThh:mm:ssZ`, from `date --utc +%Y-%m-%dT%H:%M:%SZ`),

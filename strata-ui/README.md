@@ -17,14 +17,14 @@ vertical dropdown. It talks to the existing Strata daemon over D-Bus; the daemon
 
 Install into your own session to try by hand (the loop doesn't need this):
 ```sh
-bash test-harness/install.sh     # symlinks extension/ → ~/.local/share/.../extensions, compiles schemas
+./test-harness/install.sh     # symlinks extension/ → ~/.local/share/.../extensions, compiles schemas
 # Wayland: log out/in, then `gnome-extensions enable strata-ui@elijahlynn.net`, Ctrl+Alt+C
 ```
 
 Test it (headless nested shell, ~1.5s, never touches your clipboard):
 ```sh
 # launch → screenshot → teardown
-SMOKE_OUT=/tmp/shot.png bash test-harness/launch-nested.sh --smoke && xdg-open /tmp/shot.png
+SMOKE_OUT=/tmp/shot.png ./test-harness/launch-nested.sh --smoke && xdg-open /tmp/shot.png
 
 # or drive it yourself
 source test-harness/launch-nested.sh
