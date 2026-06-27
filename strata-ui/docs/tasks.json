@@ -359,6 +359,27 @@
         "ADR-0005"
       ],
       "passes": false
+    },
+    {
+      "id": "023",
+      "title": "Typing on a focused card routes to the search box (Up returns to search)",
+      "category": "functional",
+      "description": "When a card has keyboard focus, any printable typing key (not Left/Right which navigate, not Space=Peek / Enter=copy / Delete=delete) should redirect to the search box and type there; and Up should move focus from a card back to the search box. Currently typing on a focused card is lost (St.Button takes no text input), so a user cannot refine the search after arrowing into the cards. DO NOT BUILD until directed.",
+      "steps": [
+        "With a card focused, pressing a printable character focuses the search box and types it (route or re-inject the keystroke so the character is not lost)",
+        "With a card focused, Up moves focus back to the search box",
+        "Left/Right still navigate; Space/Enter/Delete card actions unchanged",
+        "TEST: focus a card, send a printable key, assert focus is in search and the char reached the query; send Up, assert focus in search; teeth-proven"
+      ],
+      "blockedBy": [
+        "004",
+        "011"
+      ],
+      "refs": [
+        "v1-spec.md",
+        "ADR-0004"
+      ],
+      "passes": false
     }
   ]
 }

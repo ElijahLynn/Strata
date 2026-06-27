@@ -19,6 +19,7 @@
 
 ## Tasked, NOT built
 - 022 file-path-for-images (just added to tasks.json; do not build until directed).
+- 023 typing on a focused card routes to search; Up returns to search (do not build until directed).
 
 ## Honest gaps to record (not pretend-fixed)
 - 013 gear works live but is NOT headless-teeth-tested (openPreferences cant be observed headlessly) -> mark live-smoke-gated.
