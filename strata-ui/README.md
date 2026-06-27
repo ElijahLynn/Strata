@@ -35,22 +35,20 @@ nested_eval "global.context.unsafe_mode"
 nested_down                          # kill + clean
 ```
 
-Autonomous build loop — one agent works `tasks.json` top to bottom, verifying each feature:
+Autonomous build loop — `loop.sh` gives each feature a fresh-context agent, capped so a feature
+that never passes can't spin (and spend) forever:
 ```sh
-claude --print "$(cat test-harness/coding-prompt.md)" --dangerously-skip-permissions
+cd strata-ui && bash test-harness/loop.sh    # cap 20; `loop.sh 50` raises it, `loop.sh 1` = one iteration
 ```
-At larger scale, give each feature a fresh context (outer loop) instead — **bash**, capped so a
-feature that never passes can't spin forever:
+That is exactly this loop, by hand (no cap — don't leave it unattended):
 ```bash
-max=20; n=0
 while jq --exit-status '.features[]|select(.passes==false)' docs/tasks.json >/dev/null; do
-  n=$((n + 1)); [ "$n" -gt "$max" ] && { echo "stopped at max-iterations $max"; break; }
-  cat test-harness/coding-prompt.md | claude --print --dangerously-skip-permissions
+  cat test-harness/coding-prompt.md | claude -p --dangerously-skip-permissions
 done
 ```
-Each session: pick next `passes:false` (deps met) → build in `extension/` → verify in the nested
-shell → flip `passes` → commit. Stops when all pass; Ctrl+C to pause, re-run to resume.
-(`test-harness/loop.sh` = one iteration of the above.)
+Each iteration: a fresh agent picks the next `passes:false` (deps met) → builds in `extension/`
+→ verifies in the nested shell → `verify.sh all` → flips `passes` → commits, top to bottom until
+none are left. Ctrl+C to pause, re-run to resume.
 
 Needs: `mutter-devkit` (GNOME ≥49), `gnome-shell`, `gdbus`, `dbus-run-session`, `jq`, `sqlite3`.
 

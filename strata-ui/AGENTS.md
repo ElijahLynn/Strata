@@ -44,9 +44,8 @@ resume safely and keeps fixed bugs from coming back.
 
 There are two roles, and an agent must know which one it is:
 
-- The **autonomous loop agent** runs `coding-prompt.md` (via `loop.sh` and the
-  outer wrapper below) and BUILDS slices test-first. This is the only role that
-  edits `extension/`.
+- The **autonomous loop agent** runs `coding-prompt.md` (via `loop.sh`) and
+  BUILDS slices test-first. This is the only role that edits `extension/`.
 - An **interactive assistant** (a chat/IDE session) helps design slices, wires up
   the harness, reviews, and diagnoses. By default it does NOT build slices and
   does NOT run the loop.
@@ -59,26 +58,28 @@ the loop and when; if that is unstated, ask. This rule exists because it was
 broken: an assistant asked only to set up the slices went and built two of them
 itself, spending the context and the loop run the human had reserved.
 
-## Running the loop (mechanics)
+## Running the loop
 
-`test-harness/loop.sh` is a SINGLE-SHOT despite the name: it execs one
-`claude --print "$(cat coding-prompt.md)"` agent. The looping is two layers:
+`bash test-harness/loop.sh` IS the loop — run it from `strata-ui/`. It re-spawns a
+fresh coding agent per iteration until every feature is `passes:true`, or a
+max-iterations cap is hit (default 20; `loop.sh 50` raises it, `loop.sh 1` does a
+single iteration). Two layers:
 
-- **Inner** (one run): that agent works feature → feature per `coding-prompt.md`
-  (pick lowest `passes:false` → red → green → `verify.sh all` → flip → commit →
-  next) until all pass or it runs low on context, then stops clean and committed.
-- **Outer** (the actual loop): re-spawn a FRESH agent per iteration until nothing
-  is `passes:false`. This is what survives finite context:
+- **Inner** (one agent): a fresh `claude --print "$(cat coding-prompt.md)"` works
+  feature → feature (pick lowest `passes:false` → red → green → `verify.sh all` →
+  flip → commit → next) until all pass or it runs low on context, then stops clean.
+- **Outer** (`loop.sh` itself): re-spawn a fresh agent — a clean context each time
+  — until `jq` finds no `passes:false` left. The cap is the backstop so a feature
+  that can never pass can't spin agents (and spend) forever.
+
+Equivalent by hand, minus the cap (so don't leave it unattended):
 
   ```sh
-  cd strata-ui; max=20; n=0
+  cd strata-ui
   while jq -e '.features[]|select(.passes==false)' docs/tasks.json >/dev/null; do
-    n=$((n+1)); [ "$n" -gt "$max" ] && { echo "stopped at max $max"; break; }
-    bash test-harness/loop.sh
+    cat test-harness/coding-prompt.md | claude -p --dangerously-skip-permissions
   done
   ```
-
-So "run the loop" means the outer wrapper; bare `loop.sh` is one iteration of it.
 
 ## What headless verify can and cannot catch
 
