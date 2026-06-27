@@ -1,12 +1,12 @@
 # Pending merge state (written pre-compaction)
 
-`strata-ui` HEAD = c7ebda9 (011 whole-card highlight — already on strata-ui).
+`strata-ui` HEAD = 17986ff (011 whole-card highlight + slice-022/this-note, already on strata-ui).
 
 ## Worktree branches to cherry-pick onto strata-ui (each cut from 752afad)
 - 017 search placeholder contrast — commit 7c181d9 — branch worktree-agent-a68421ccb0c51dae5 — DONE
 - 018 crisp thumbnails (contain) — commit aa07d164 — branch worktree-agent-add0b681b3047cd98 — DONE
 - 019 image multi-format paste-back — agent a5b8003960e23166b — RUNNING (may report BLOCKED: only fixable via daemon SetClipboard if it works on Mutter; else crosses ADR-0003)
-- 020 Delete key removes focused item — agent a7d18b96c3623fd43 — RUNNING
+- 020 Delete key removes focused item — commit d6122d22 — branch worktree-agent-a7d18b96c3623fd43 — DONE
 - 021 gear re-click refocuses open prefs — agent a8a76ddc79ca34374 — RUNNING (likely live-smoke-gated; prefs window not observable headlessly)
 
 ## Merge procedure (post-compaction)
