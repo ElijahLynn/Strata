@@ -214,7 +214,7 @@
         "../AGENTS.md (ingest note)",
         "strata@edu4rdshl.dev/extension.js (_connectClipboardMonitor/_readClipboard/_pickMime)"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "011",

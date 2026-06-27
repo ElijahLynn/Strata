@@ -45,6 +45,16 @@ export default class StrataUIExtension extends Extension {
     _focusSignalId = null;      // global.display notify::focus-window
     _currentFocusedApp = '';    // wm_class of the focused window (for excluded-apps)
 
+    /** Clipboard capture state (slice 010). On GNOME the daemon's data-control
+     *  monitor does not bind (Mutter exposes neither ext- nor wlr-data-control,
+     *  see strata-daemon/src/clipboard/monitor.rs), so the extension is the
+     *  capture agent: watch the Meta selection and forward copies via SubmitItem. */
+    _selectionChangedId = null;   // global.display selection 'owner-changed'
+    _clipboardDebounceId = null;  // coalesces rapid clipboard writes
+    _clipboardTransferPending = false; // one transfer_async in flight at a time
+    _maxTextBytes = 1024 * 1024;
+    _maxImageBytes = 5 * 1024 * 1024;
+
     enable() {
         this._settings = this.getSettings();
         this._shuttingDown = false;
@@ -54,6 +64,7 @@ export default class StrataUIExtension extends Extension {
             this._daemonKillTimerId = null;
         }
 
+        this._readSizeLimits();   // text/image caps for capture + daemon config
         this._spawnDaemon();      // Rust daemon (supervised); shared with Strata.
         this._connectProxy();     // async — never blocks if the daemon isn't up yet.
         this._buildVisor();
@@ -61,6 +72,7 @@ export default class StrataUIExtension extends Extension {
         this._watchSettings();    // live layout + theme; also applies the theme now
         this._connectFocusTracking(); // who's focused → excluded-apps decisions
         this._connectSignals();   // ItemAdded / ItemDeleted / HistoryCleared
+        this._connectClipboardMonitor(); // capture copies → SubmitItem (GNOME path)
         console.log('[Strata UI] enabled');
     }
 
@@ -68,6 +80,7 @@ export default class StrataUIExtension extends Extension {
         this._shuttingDown = true;
         this._unregisterShortcut();
         this._unwatchSettings();
+        this._disconnectClipboardMonitor();
         this._disconnectSignals();
         this._disconnectFocusTracking();
         this._hideVisor();
@@ -281,12 +294,16 @@ export default class StrataUIExtension extends Extension {
      *  (live if open, else on next summon), the theme re-toggles its CSS class.
      *  Cheap signal handlers only — nothing here blocks the main loop. */
     _watchSettings() {
+        const onLimitsChanged = () => { this._readSizeLimits(); this._pushConfig(); };
         this._settingsIds = [
             this._settings.connect('changed::visor-edge', () => this._relayoutVisor()),
             this._settings.connect('changed::visor-height', () => this._relayoutVisor()),
             this._settings.connect('changed::card-width', () =>
                 this._shelf?.setCardWidth(this._settings.get_int('card-width'))),
             this._settings.connect('changed::theme', () => this._applyTheme()),
+            this._settings.connect('changed::max-history', onLimitsChanged),
+            this._settings.connect('changed::max-text-mb', onLimitsChanged),
+            this._settings.connect('changed::max-image-mb', onLimitsChanged),
         ];
         // 'auto' theme follows the system light/dark preference.
         this._interfaceSettings = new Gio.Settings({schema_id: 'org.gnome.desktop.interface'});
@@ -420,6 +437,119 @@ export default class StrataUIExtension extends Extension {
         }
     }
 
+    // -- Clipboard capture (slice 010, lifted from strata@edu4rdshl.dev) --------
+    //
+    // The Rust daemon can only monitor the clipboard on wlroots compositors
+    // (ext/wlr-data-control); Mutter exposes neither, so on GNOME the extension
+    // is the capture agent. Watch the Meta selection (GNOME-native, no Wayland
+    // protocol needed), read each new payload off the main thread, and hand the
+    // raw bytes to the daemon via SubmitItem. Without this, copies made in other
+    // apps never reach Strata.
+
+    /** Read text/image size caps from settings into bytes (also pushed to the
+     *  daemon via SetConfig so the History prefs actually take effect). */
+    _readSizeLimits() {
+        this._maxTextBytes  = this._settings.get_int('max-text-mb')  * 1024 * 1024;
+        this._maxImageBytes = this._settings.get_int('max-image-mb') * 1024 * 1024;
+    }
+
+    /** Push runtime limits to the daemon. Safe before the proxy is ready / after
+     *  the daemon has gone away (the optional-chained call is a no-op then). */
+    _pushConfig() {
+        this._proxy?.SetConfigRemote?.(
+            this._settings.get_int('max-history'),
+            this._maxTextBytes,
+            this._maxImageBytes,
+            () => {});
+    }
+
+    _connectClipboardMonitor() {
+        const selection = global.display.get_selection();
+        this._selectionChangedId = selection.connect('owner-changed', (_sel, type) => {
+            if (type !== Meta.SelectionType.SELECTION_CLIPBOARD) return;
+            this._scheduleClipboardRead();
+        });
+    }
+
+    _disconnectClipboardMonitor() {
+        if (this._clipboardDebounceId !== null) {
+            GLib.Source.remove(this._clipboardDebounceId);
+            this._clipboardDebounceId = null;
+        }
+        this._clipboardTransferPending = false;
+        if (this._selectionChangedId !== null) {
+            global.display.get_selection().disconnect(this._selectionChangedId);
+            this._selectionChangedId = null;
+        }
+    }
+
+    /** Coalesce rapid clipboard changes (apps that write the selection several
+     *  times per copy) into one read. */
+    _scheduleClipboardRead() {
+        if (this._clipboardDebounceId !== null) {
+            GLib.Source.remove(this._clipboardDebounceId);
+            this._clipboardDebounceId = null;
+        }
+        this._clipboardDebounceId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 50, () => {
+            this._clipboardDebounceId = null;
+            this._readClipboard();
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    /** One transfer at a time: read the current clipboard's best MIME off-thread
+     *  and SubmitItem the raw bytes to the daemon (which hashes, dedups, prunes).
+     *  Skips password-manager secrets and anything over the size cap. */
+    _readClipboard() {
+        if (this._clipboardTransferPending) return;
+        const selection = global.display.get_selection();
+        const mimes = selection.get_mimetypes(Meta.SelectionType.SELECTION_CLIPBOARD);
+        // Password managers (KeePassXC etc.) tag secrets with this hint mime;
+        // honoring it keeps passwords out of history.
+        if (mimes.includes('x-kde-passwordManagerHint')) return;
+        const mime = this._pickMime(mimes);
+        if (!mime) return;
+
+        this._clipboardTransferPending = true;
+        const outputStream = Gio.MemoryOutputStream.new_resizable();
+        selection.transfer_async(
+            Meta.SelectionType.SELECTION_CLIPBOARD, mime, -1, outputStream, null,
+            (_obj, result) => {
+                this._clipboardTransferPending = false;
+                try {
+                    selection.transfer_finish(result);
+                    outputStream.close(null);
+                    const bytes = outputStream.steal_as_bytes();
+                    const size = bytes.get_size();
+                    if (size === 0) return;
+                    if (size > (mime.startsWith('image/') ? this._maxImageBytes : this._maxTextBytes))
+                        return;
+                    // Raw `ay` to the daemon — no synchronous base64 on the main thread.
+                    this._proxy?.SubmitItemRemote?.(mime, bytes.get_data(), () => {});
+                } catch (e) {
+                    console.error('[Strata UI] clipboard read error:', e);
+                }
+            });
+    }
+
+    /** Pick the best MIME to store from the offered list (mirrors the daemon's
+     *  pick_mime / the original extension). Allowlist only — reading an unknown
+     *  type could pull a huge blob into Shell memory before the size check. */
+    _pickMime(mimes) {
+        const PREFERRED = [
+            'image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp',
+            'image/bmp', 'image/tiff', 'image/x-icon',
+            'text/plain;charset=utf-8', 'UTF8_STRING',
+            'text/plain', 'STRING', 'TEXT',
+            'text/html', 'text/rtf', 'application/rtf', 'text/markdown',
+            'x-special/gnome-copied-files', 'x-special/nautilus-clipboard',
+            'application/x-kde-cutselection', 'text/uri-list',
+        ];
+        for (const want of PREFERRED)
+            if (mimes.includes(want)) return want;
+        return null;
+    }
+
     // -- Daemon supervision (lifted from strata@edu4rdshl.dev, ADR-0001) --------
 
     _spawnDaemon() {
@@ -521,7 +651,9 @@ export default class StrataUIExtension extends Extension {
                         console.error('[Strata UI] D-Bus proxy error:', error);
                         return;
                     }
-                    this._proxyOwnerId = proxy.connect('notify::g-name-owner', () => {});
+                    this._pushConfig();   // apply size caps to the daemon now…
+                    this._proxyOwnerId = proxy.connect('notify::g-name-owner',
+                        () => { if (proxy.g_name_owner) this._pushConfig(); }); // …and on every respawn
                 }
             );
         } catch (e) {

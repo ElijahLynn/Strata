@@ -223,6 +223,12 @@ case "$ID" in
         if (id==='IMG') return Promise.resolve(['image/png', new Uint8Array([137,80,78,71,1,2,3])]);
         return Promise.resolve(['text/plain', new TextEncoder().encode('CONTENT-'+id)]);
       };
+      // 010: these browse cards are stubbed (not in the real daemon), so the
+      // clipboard monitor would re-capture each paste-back write as a NEW item
+      // and prepend a card, fighting the move-to-top assertions. Production
+      // dedups instead (db.rs hash match -> is_new=false -> no ItemAdded), so
+      // this only bites the stub. Disable capture to test paste-back in isolation.
+      if (e._disconnectClipboardMonitor) e._disconnectClipboardMonitor();
       return 1;
     })()" >/dev/null 2>&1
     reopen(){ nested_eval "(function(){var e=$LU; e._hideVisor(); e._settings.set_boolean('move-activated-to-top', ${1:-false}); e._showVisor(); return 1;})()" >/dev/null 2>&1; sleep 0.4; }
@@ -545,6 +551,47 @@ case "$ID" in
     sleep 0.3
     chk "$(evnum "(function(){return $LU._shelf._cards.size;})()")" "0" "HistoryCleared empties the shelf"
     chk "$(ls "$THUMBS" 2>/dev/null | grep -c .)" "0" "HistoryCleared wipes the thumbnail cache directory"
+    ;;
+
+  010)
+    LU="Main.extensionManager.lookup('$UUID').stateObj"
+    # --- static asserts: the extension is the clipboard capture agent on GNOME ---
+    chk "$(grep -qs 'owner-changed'  "$EXT/extension.js" && echo y || echo n)" "y" "watches the Meta selection (owner-changed)"
+    chk "$(grep -qs 'transfer_async' "$EXT/extension.js" && echo y || echo n)" "y" "reads the clipboard off-thread (transfer_async)"
+    chk "$(grep -qs 'SubmitItem'     "$EXT/extension.js" && echo y || echo n)" "y" "forwards copies to the daemon (SubmitItem)"
+    chk "$(grep -qs 'SetConfig'      "$EXT/extension.js" && echo y || echo n)" "y" "pushes size caps to the daemon (SetConfig)"
+
+    # --- runtime: stub SubmitItem, drive the nested session clipboard, assert capture ---
+    nested_eval "(function(){
+      var e=$LU; globalThis._sub=[];
+      e._proxy=e._proxy||{};
+      e._proxy.SubmitItemRemote=function(m,b,cb){ globalThis._sub.push([m,(new TextDecoder('utf-8')).decode(b)]); if(cb)cb(); };
+      imports.gi.St.Clipboard.get_default().set_text(imports.gi.St.ClipboardType.CLIPBOARD,'hello strata MARK42');
+      return 1;
+    })()" >/dev/null 2>&1
+    sleep 0.6
+    chk "$(evnum "(function(){return globalThis._sub.length;})()")" "1" "copying text calls SubmitItem once"
+    chk "$(evnum "(function(){return (globalThis._sub[0]&&_sub[0][0].indexOf('text')===0)?1:0;})()")" "1" "submitted mime is text/*"
+    chk "$(evnum "(function(){return (globalThis._sub[0]&&_sub[0][1].indexOf('MARK42')>=0)?1:0;})()")" "1" "submitted bytes are the copied text"
+
+    # --- password-manager secrets (x-kde-passwordManagerHint) are skipped ---
+    nested_eval "(function(){
+      var M=imports.gi.Meta,G=imports.gi.GLib;
+      var src=M.SelectionSourceMemory.new('x-kde-passwordManagerHint',G.Bytes.new([115,101,99,114,101,116]));
+      global.display.get_selection().set_owner(M.SelectionType.SELECTION_CLIPBOARD,src);
+      return 1;
+    })()" >/dev/null 2>&1
+    sleep 0.6
+    chk "$(evnum "(function(){return globalThis._sub.length;})()")" "1" "password-manager secret is NOT submitted"
+
+    # --- payloads over the size cap are dropped ---
+    nested_eval "(function(){
+      var e=$LU; e._maxTextBytes=4;
+      imports.gi.St.Clipboard.get_default().set_text(imports.gi.St.ClipboardType.CLIPBOARD,'way too long to store');
+      return 1;
+    })()" >/dev/null 2>&1
+    sleep 0.6
+    chk "$(evnum "(function(){return globalThis._sub.length;})()")" "1" "over-cap payload is dropped (size check)"
     ;;
 
   *) echo "  note: no feature-specific checks for $ID (generic only)";;

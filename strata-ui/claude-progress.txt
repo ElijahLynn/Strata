@@ -5,6 +5,40 @@ Entries are headed with a UTC ISO-8601 timestamp (YYYY-MM-DDThh:mm:ssZ, from
 Harness: https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents
 
 ────────────────────────────────────────────────────────────────────────
+2026-06-27T16:17:21Z — 010: Capture clipboard from other apps (TDD red→green)
+- THE big v1 gap, found in live use: copies made in other apps never reached
+  Strata. On GNOME the daemon's data-control monitor doesn't bind (Mutter exposes
+  neither ext- nor wlr-data-control; strata-daemon/src/clipboard/monitor.rs), so
+  the extension is the capture agent — and v1 lifted daemon supervision, the proxy,
+  focus tracking, and signals from strata@edu4rdshl.dev but NOT the monitor.
+- extension.js: ported _connectClipboardMonitor (watch global.display selection
+  'owner-changed') → _scheduleClipboardRead (50ms debounce) → _readClipboard
+  (one transfer_async at a time into a MemoryOutputStream, off the main thread) →
+  _proxy.SubmitItemRemote(mime, ay). _pickMime is the daemon's allowlist (images,
+  text, uri-list); x-kde-passwordManagerHint secrets and over-cap payloads are
+  dropped. Size caps now reach the daemon: _readSizeLimits + _pushConfig (SetConfig
+  on proxy-connect, on every respawn, and on max-history/max-text-mb/max-image-mb
+  change) — so the History prefs finally take effect.
+- TEST FIRST: verify.sh case 010 stubs _proxy.SubmitItemRemote to record, then
+  drives the nested session clipboard (St.Clipboard.set_text) and asserts SubmitItem
+  fires once with mime=text/* and the copied bytes; a SelectionSourceMemory offering
+  x-kde-passwordManagerHint is NOT submitted; an over-cap payload (e._maxTextBytes=4)
+  is dropped; plus statics (owner-changed/transfer_async/SubmitItem/SetConfig in
+  extension.js). RED before impl (no capture), GREEN after.
+- REGRESSION the suite caught: case 005 went red. Cause: 005's browse cards are
+  stubbed (not in the real daemon), so the new monitor re-captured each paste-back
+  write as a NEW item → ItemAdded → a card prepended, fighting the move-to-top
+  assert. Confirmed it's a TEST ARTIFACT, not a product bug: db.rs dedups on
+  content_hash (UPDATE created_at, is_new=false) and main.rs only emits ItemAdded
+  when is_new — so in production a re-copied item never duplicates. Fix: 005 setup
+  disables the monitor (e._disconnectClipboardMonitor) to test paste-back in
+  isolation. 001-010 all green via verify.sh all.
+- Run: bash test-harness/verify.sh 010   (suite: bash test-harness/verify.sh all)
+- Live smoke (after reloading the extension): copy text in another app → a card
+  appears at the front of the shelf.
+- NEXT: 011 keyboard nav, 012 paste-back, 013 gear, 014 install docs.
+
+────────────────────────────────────────────────────────────────────────
 2026-06-27T16:04:53Z — 015: Harness — full regression suite (verify.sh all)
 - Found-in-use review: v1 shipped "headless-green" but five real bugs reached a
   live session (no clipboard capture, Left/Right stuck in search, paste-back
