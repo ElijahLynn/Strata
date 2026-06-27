@@ -72,26 +72,24 @@
 /* Keyboard-selected card (Left/Right nav, feature 011). It MUST read as clearly
  * selected, as the WHOLE card — navigation is invisible otherwise.
  *
- * Two earlier traps this rule has to dodge:
+ * The selection cue is a single clean whole-card BACKGROUND fill. Two things this
+ * rule has to get right:
  *   1) Colour alone is out-specified: the per-theme `.strata-theme-* .strata-card`
  *      rules are two classes (specificity 0,2,0) and beat a single-class
- *      `.strata-card-focused` (0,1,0) on background/border-color. So the per-theme
- *      focused tints below are also two-class (0,2,0) AND live LATER in the file
- *      than `.strata-theme-* .strata-card`, so they win the equal-specificity tie on
+ *      `.strata-card-focused` (0,1,0) on background-color. So the per-theme focused
+ *      tints below are also two-class (0,2,0) AND live LATER in the file than
+ *      `.strata-theme-* .strata-card`, so they win the equal-specificity tie on
  *      source order. (The previous version put them BEFORE, so the plain-card
  *      background won the cascade back and the fill silently vanished — that is the
  *      whole-card half of the live bug.)
- *   2) An outline + thick border is a SIDES-only signal: where a card sits flush with
- *      the band's top/bottom the outline/border is clipped, so the user saw the
- *      highlight only on the left/right edges. A BACKGROUND fill can't be clipped at
- *      the band edges, so the fill — not the outline — is the primary selection cue.
- *      The outline/border stay as secondary emphasis. */
+ *   2) NO outline / no thickened border (024). 011 had also kept an `outline: 3px`
+ *      plus a `border-width: 2px` as "secondary edge emphasis", but that drew a
+ *      SECOND line on the card's left/right edges on top of the fill — a duplicate
+ *      double-line. A BACKGROUND fill can't be clipped at the band's top/bottom
+ *      edges, so the fill alone is the cue; the redundant outline/thick border are
+ *      gone, leaving the card's normal 1px border untouched. */
 .strata-card-focused {
   background-color: rgba(120, 170, 255, 0.34);
-  outline: 3px solid rgb(120, 170, 255);
-  outline-offset: -1px;
-  border-width: 2px;
-  border-color: rgb(120, 170, 255);
 }
 .strata-card-focused .strata-card-text,
 .strata-card-focused .strata-card-file-name {
@@ -229,12 +227,11 @@
    Two-class (specificity 0,2,0) so they MATCH `.strata-theme-* .strata-card`, and
    declared AFTER it so the equal-specificity tie breaks in the focused rule's
    favour (source order). The BACKGROUND fill is the whole-card selection cue that
-   can't be clipped at the band's top/bottom edges; the outline/border are the
-   secondary edge emphasis. Keep card text readable on the tint. */
+   can't be clipped at the band's top/bottom edges, and is the ONLY edge signal
+   (024: the secondary outline/thick border were a duplicate double-line and were
+   removed). Keep card text readable on the tint. */
 .strata-theme-dark .strata-card-focused {
   background-color: rgba(120, 170, 255, 0.34);
-  border-color: rgb(120, 170, 255);
-  outline-color: rgb(120, 170, 255);
 }
 .strata-theme-dark .strata-card-focused .strata-card-text,
 .strata-theme-dark .strata-card-focused .strata-card-file-name {
@@ -242,8 +239,6 @@
 }
 .strata-theme-light .strata-card-focused {
   background-color: rgba(60, 120, 230, 0.32);
-  border-color: rgb(60, 120, 230);
-  outline-color: rgb(60, 120, 230);
 }
 .strata-theme-light .strata-card-focused .strata-card-text,
 .strata-theme-light .strata-card-focused .strata-card-file-name {

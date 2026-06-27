@@ -27,6 +27,25 @@ route turns the type/query/follow-up assertions RED; disabling the Up branch tur
 RED; restoring → GREEN. verify.sh all -> ALL GREEN (001-021, 023).
 
 ────────────────────────────────────────────────────────────────────────
+2026-06-27T22:53:20Z — 024: remove duplicate edge line on the focused card
+Root cause: slice 011 made the whole-card background fill the primary focus cue but KEPT an
+`outline: 3px solid` + thickened `border-width: 2px` on .strata-card-focused (and the per-theme
+variants) as "secondary edge emphasis". On screen that outline/thick-border drew a SECOND line on
+the card's left/right edges on top of the fill, so a focused card read as double-lined.
+Fix (extension/stylesheet.css, both themes): dropped the outline, outline-offset, border-width and
+the now-meaningless border-color/outline-color from .strata-card-focused / .strata-theme-dark
+.strata-card-focused / .strata-theme-light .strata-card-focused, leaving ONLY the background fill
+(the card's normal 1px border is untouched). One clean whole-card highlight, no duplicate edge.
+Test (verify.sh case 024, teeth-proven): opens browse cards, focuses the first one, and for BOTH
+the dark and light skins reads the COMPUTED theme node of the focused card vs an unfocused card —
+asserts the background still differs (fill present) AND outline-width / border-width(TOP) MATCH the
+unfocused card (no extra outline, no thickened border => no duplicate edge). Plus static guards that
+the .strata-card-focused rule declares no outline / no border-width but still declares the fill.
+RED first (focused outline-width 3 vs 0, border-width 2 vs 1); GREEN after the fix; re-adding the
+outline+thick border flipped it RED again (teeth), then restored. verify.sh all -> ALL GREEN
+(001-021, 024; no 015/019/022/023 case blocks). Verify: ./test-harness/verify.sh 024 (or all).
+
+────────────────────────────────────────────────────────────────────────
 2026-06-27T22:29:51Z — Merged parallel slices 017/018/020/021 (fixes) + 019 (BLOCKED) onto strata-ui
 Built in parallel worktrees, cherry-picked onto strata-ui (011 already in). verify.sh all ->
 ALL GREEN (001-021). Per-slice root causes (condensed; the cherry-pick took --ours on this log):

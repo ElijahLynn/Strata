@@ -1242,6 +1242,85 @@ case "$ID" in
     chk "$(evnum "globalThis._del.length")" "1" "Delete on a focused card still deletes it (020 not regressed)"
     ;;
 
+  024)
+    LU="Main.extensionManager.lookup('$UUID').stateObj"
+    # --- the live bug: a focused card shows a DUPLICATE / double line on its
+    #     left/right edges. Slice 011 made the whole-card BACKGROUND fill the
+    #     primary selection cue (can't be clipped at the band's top/bottom), but
+    #     KEPT the earlier `outline: 3px` + thickened `border-width: 2px` on
+    #     .strata-card-focused as "secondary edge emphasis". On screen that draws a
+    #     SECOND line on the sides (the old sides-only highlight) ON TOP of the
+    #     fill, so the card reads as double-lined. The fix drops the redundant
+    #     outline + thick border so focus is just the clean whole-card fill: the
+    #     focused card's computed outline-width and border-width must REVERT to an
+    #     unfocused card's values (no extra edge), while the BACKGROUND fill stays.
+    #
+    # USER-OBSERVABLE assert: compare a FOCUSED card's computed theme node to an
+    # UNFOCUSED card's. Background must still differ (the fill). outline-width and
+    # border-width must MATCH the unfocused card (no added outline / no thickened
+    # border => no duplicate edge). Re-adding `outline:3px` or `border-width:2px`
+    # makes those widths differ from the unfocused card again => RED (the teeth).
+
+    # --- static: .strata-card-focused must NOT declare an outline or a thickened
+    #     border-width (the redundant secondary edge). It MUST still declare the
+    #     background fill (the single intended highlight). ---
+    focrule="$(awk '/^\.strata-card-focused[[:space:]]*\{/{f=1} f{print} f&&/\}/{exit}' "$EXT/stylesheet.css")"
+    chk "$(printf '%s' "$focrule" | grep -qsE '^[[:space:]]*outline[^;]*:' && echo y || echo n)" "n" ".strata-card-focused declares NO outline (the redundant edge line is gone)"
+    chk "$(printf '%s' "$focrule" | grep -qsE '^[[:space:]]*border-width[^;]*:' && echo y || echo n)" "n" ".strata-card-focused declares NO thickened border-width (no double edge)"
+    chk "$(printf '%s' "$focrule" | grep -qsE '^[[:space:]]*background-color[^;]*:' && echo y || echo n)" "y" ".strata-card-focused still declares the whole-card background fill"
+
+    # --- runtime: open with browse cards once, then per theme focus the first card
+    #     and read computed theme nodes for BOTH skins (the per-theme focused rules
+    #     live in the theme-scoped blocks too). The unfocused reference is an
+    #     off-to-the-right card that never received focus.
+    #
+    # Sequencing note: _showVisor() defers a focus to the SEARCH box one idle tick,
+    # which would steal focus off our card (and strip .strata-card-focused). So we
+    # open ONCE in setup, switch theme LIVE via settings (008: class-toggle, no
+    # reshow), and set the card focus in a SEPARATE Eval AFTER a settle, so the
+    # idle search-focus has already fired and our focus sticks. ---
+    nested_eval "(function(){
+      var e=$LU, sh=e._shelf;
+      globalThis._eM=[]; for (var i=0;i<8;i++) _eM.push({id:'e'+i,mime_type:'text/plain',content_text:'edge '+i,created_at:i,has_thumbnail:false});
+      sh._fetchPage=function(o,l){ return Promise.resolve(_eM.slice(o,o+l)); };
+      e._showVisor(); return 1;
+    })()" >/dev/null 2>&1
+    sleep 0.9
+
+    # Emit "ow_f ow_u bw_f bw_u bgdiff foccls": outline-width / border-width (TOP)
+    # for the Focused vs Unfocused card; bgdiff=1 if backgrounds differ; foccls=1 if
+    # the focus class is applied. Read AFTER focus is set + settled.
+    edgesig(){   # $1 = theme (dark|light)
+      # switch theme live (no reshow) and settle so the idle search-focus has fired
+      nested_eval "(function(){ $LU._settings.set_string('theme','$1'); return 1; })()" >/dev/null 2>&1
+      sleep 0.4
+      # focus the first card in its own Eval, then settle so the class applies
+      nested_eval "(function(){ global.stage.set_key_focus($LU._shelf._cardBox.get_first_child()); return 1; })()" >/dev/null 2>&1
+      sleep 0.4
+      nested_eval "(function(){
+        var St=imports.gi.St, sh=$LU._shelf;
+        var f=sh._cardBox.get_first_child();
+        var u=sh._cardBox.get_children()[3];
+        var tf=f.get_theme_node(), tu=u.get_theme_node();
+        function bg(t){var c=t.get_background_color(); return [c.red,c.green,c.blue,c.alpha].join(',');}
+        var owf=Math.round(tf.get_outline_width()), owu=Math.round(tu.get_outline_width());
+        var bwf=Math.round(tf.get_border_width(St.Side.TOP)), bwu=Math.round(tu.get_border_width(St.Side.TOP));
+        var bgdiff=(bg(tf)!==bg(tu))?1:0;
+        var foccls=f.has_style_class_name('strata-card-focused')?1:0;
+        return [owf,owu,bwf,bwu,bgdiff,foccls].join(' ');
+      })()" 2>/dev/null | grep -oE '[0-9]+ [0-9]+ [0-9]+ [0-9]+ [0-9]+ [0-9]+' | head -1
+    }
+
+    for theme in dark light; do
+      sig="$(edgesig "$theme")"
+      read -r owf owu bwf bwu bgdiff foccls <<< "$sig"
+      chk "${foccls:-0}" "1" "$theme: the focused card carries .strata-card-focused"
+      chk "${bgdiff:-0}" "1" "$theme: the focused card's BACKGROUND still fills (computed background differs from an unfocused card)"
+      chk "${owf:-x} ${owu:-y}" "0 0" "$theme: focused card adds NO outline (outline-width matches the unfocused card => no duplicate edge line)"
+      chk "${bwf:-x}" "${bwu:-y}" "$theme: focused card does NOT thicken the border (border-width matches the unfocused card => no double edge)"
+    done
+    ;;
+
   *) echo "  note: no feature-specific checks for $ID (generic only)";;
 esac
 
