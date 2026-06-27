@@ -528,6 +528,27 @@
         "v1-spec.md"
       ],
       "passes": false
+    },
+    {
+      "id": "026",
+      "title": "Hex color swatch label readable in both themes (contrast)",
+      "category": "bugfix",
+      "description": "The color-swatch card (slice 007) renders the hex string (e.g. #00FFCC) in a label below the swatch, on the card surface. .strata-card-color-hex is hard-coded color: rgba(255,255,255,0.85) — near-white — so in the LIGHT theme it is white text on the light-grey card and is unreadable (the dark theme happens to be fine). Make the hex label theme-aware and readable in BOTH themes, mirroring slice 017 (search placeholder contrast): dark-readable text in the light theme, light text in the dark theme, with the per-theme selector beating the base rule on specificity/source-order. DO NOT change the swatch fill itself.",
+      "steps": [
+        "Give .strata-card-color-hex a theme-aware color: in .strata-theme-light a dark/contrasting color (readable on the light card), in .strata-theme-dark a light color; ensure the per-theme rule wins (specificity + source-order, per the 017 lesson)",
+        "#00FFCC and other hexes are legible in both light and dark themes — no white-on-light-grey",
+        "The swatch fill (background-color of .strata-card-swatch) is unchanged",
+        "TEST: build a color card under .strata-theme-light and assert the hex labels COMPUTED color is dark/contrasting (not near-white); under .strata-theme-dark assert it is light; teeth-proven (break the per-theme rule -> light theme goes near-white -> RED)"
+      ],
+      "blockedBy": [
+        "007",
+        "017"
+      ],
+      "refs": [
+        "v1-spec.md",
+        "ADR-0007"
+      ],
+      "passes": false
     }
   ]
 }
