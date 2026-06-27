@@ -515,6 +515,13 @@ export class Shelf {
     closePeek() { this._peek?.close(); }
     isPeeking() { return !!this._peek?.visible; }
 
+    /** True when a Card currently holds keyboard focus (vs. the search box / no
+     *  focus). Used by the visor key router (feature 023) to decide whether a
+     *  printable key / Up should be redirected to the search box. */
+    hasFocusedCard() {
+        return !!this._cardFromActor(global.stage.get_key_focus());
+    }
+
     /** Move key focus between cards (Left/Right), scrolling the target into view.
      *  Returns true if a card now holds focus, false if the move stepped off the
      *  shelf (left of the first card, or there are no cards) — the caller hands

@@ -5,6 +5,28 @@ Entries are headed with a UTC ISO-8601 timestamp (YYYY-MM-DDThh:mm:ssZ, from
 Harness: https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents
 
 ────────────────────────────────────────────────────────────────────────
+2026-06-27T22:54:08Z — 023: type-on-card routes to search; Up returns to search (TDD red→green→teeth)
+The live gap: with a card highlighted (keyboard focus) a Card is an St.Button, so a printable
+keystroke was simply LOST and Up did nothing — a user couldn't refine the search after arrowing in.
+Fix is in the visor CAPTURE-phase key handler (extension.js), where the Left/Right/Space card-focus
+routing already lives (it must run before the St.Button swallows the key):
+- when a card holds focus (new Shelf.hasFocusedCard() predicate), Up sets key focus back to the
+  search box (the vertical counterpart to Left-off-the-first-card returning to search);
+- a bare printable character (no Ctrl/Alt/Super; Unicode code point >= 0x20 and != 0x7f DEL, so
+  Delete/Backspace/Tab/Enter/Escape are excluded) is re-injected via _typeIntoSearch(): focus the
+  entry's ClutterText, APPEND the char, park the cursor at the end. The entry's text-changed then
+  fires setQuery → the search runs exactly as if typed. Routing only fires from a card; once focus
+  is in the box the ClutterText types/edits normally.
+TEST (verify.sh case 023): drives REAL keystrokes via nested_key through the live grab. Asserts the
+USER-OBSERVABLE result — after a printable key, focus IS in the search box AND that char reached the
+entry text AND _query reflects it (not an internal proxy); after Up, focus is in the search box; a
+printable key on a card copies/deletes nothing; and Left/Right still navigate (011) + Delete still
+deletes the focused card (020). The 0x7f-DEL guard was found because the first impl mis-classified
+Delete as printable and the 020-regression assertion went RED. Teeth-proven: disabling the printable
+route turns the type/query/follow-up assertions RED; disabling the Up branch turns the Up assertion
+RED; restoring → GREEN. verify.sh all -> ALL GREEN (001-021, 023).
+
+────────────────────────────────────────────────────────────────────────
 2026-06-27T22:29:51Z — Merged parallel slices 017/018/020/021 (fixes) + 019 (BLOCKED) onto strata-ui
 Built in parallel worktrees, cherry-picked onto strata-ui (011 already in). verify.sh all ->
 ALL GREEN (001-021). Per-slice root causes (condensed; the cherry-pick took --ours on this log):

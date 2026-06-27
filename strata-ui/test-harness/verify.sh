@@ -1164,6 +1164,83 @@ case "$ID" in
     chk "$(evnum "(function(){return (globalThis._act[0] && globalThis._act[0].id==='PREFSWIN')?1:0;})()")" "1" "existing window: the RAISED window is the open prefs window"
     chk "$(evnum "globalThis._po")"  "0" "existing window: NO second prefs dialog is opened (the bug: it would no-op; the fix: it raises)"
     ;;
+  023)
+    LU="Main.extensionManager.lookup('$UUID').stateObj"
+    # --- the live bug: with a card highlighted (keyboard focus), typing a printable
+    #     character is LOST. A card is an St.Button (no text input), so the keystroke
+    #     dies on it and the user can't refine the search after arrowing into the
+    #     cards. The fix: when a card holds focus, a printable key must FOCUS the
+    #     search box and TYPE there (route/re-inject the char so it isn't lost), and
+    #     Up must move focus from a card back to the search box. Left/Right still
+    #     navigate; Space (Peek) / Enter (copy) / Delete (delete) are unchanged.
+    #     This case drives REAL keystrokes through the capture/key path and asserts
+    #     the USER-OBSERVABLE result: after a printable key, focus is in the search
+    #     box AND that exact char reached the query text (not an internal proxy);
+    #     after Up, focus is in the search box; and a printable key on a card neither
+    #     copies nor deletes (no card action regressed). ---
+
+    # --- runtime: open with browse cards; stub _fetchPage (browse) and _fetchSearch
+    #     (so the typed char's query resolves without a real daemon) and record any
+    #     copy (paste-back) / delete so we can prove the printable key did neither. ---
+    nested_eval "(function(){
+      var e=$LU, sh=e._shelf;
+      globalThis._tM=[]; for (var i=0;i<8;i++) _tM.push({id:'t'+i,mime_type:'text/plain',content_text:'type card '+i,created_at:i,has_thumbnail:false});
+      sh._fetchPage=function(o,l){ return Promise.resolve(_tM.slice(o,o+l)); };
+      sh._fetchSearch=function(q,l){ return Promise.resolve([]); };
+      // Spy the copy + delete seams: a printable key on a card must trigger NEITHER.
+      globalThis._copied=[]; sh._fetchContent=function(id){ globalThis._copied.push(id); return Promise.resolve(['text/plain', new Uint8Array()]); };
+      globalThis._del=[]; e._proxy={ DeleteItemAsync:function(id){ globalThis._del.push(id); return Promise.resolve(); } };
+      sh._proxy=e._proxy;
+      e._showVisor(); return 1;
+    })()" >/dev/null 2>&1
+    sleep 0.8
+    focuseq(){ evnum "(function(){return global.stage.get_key_focus()===$1?1:0;})()"; }
+    searchtext(){ nested_eval "(function(){return $LU._searchEntry.get_text();})()" 2>/dev/null; }
+
+    # focus the SECOND card, then a REAL printable keystroke ('g') must route to search.
+    nested_eval "(function(){global.stage.set_key_focus($LU._shelf._cardBox.get_children()[1]); return 1;})()" >/dev/null 2>&1
+    sleep 0.2
+    chk "$(focuseq "$LU._shelf._cardBox.get_children()[1]")" "1" "(setup) the second card holds key focus"
+    nested_key g; sleep 0.4
+    # USER-OBSERVABLE 1: focus is now in the SEARCH box (not the card).
+    chk "$(focuseq "$LU._searchEntry.get_clutter_text()")" "1" "a printable key on a focused card moves focus to the search box"
+    # USER-OBSERVABLE 2: the typed char actually REACHED the search entry's text.
+    chk "$(searchtext | grep -qs 'g' && echo y || echo n)" "y" "the typed character ('g') reached the search box text"
+    # USER-OBSERVABLE 3: the char drove the actual query (the search ran with it).
+    chk "$(evnum "(function(){return ($LU._shelf._query==='g')?1:0;})()")" "1" "the typed character drove the search query (_query==='g')"
+    # REGRESSION (Space/Enter/Delete unchanged): the printable key copied nothing and deleted nothing.
+    chk "$(evnum "globalThis._copied.length")" "0" "a printable key on a card copies nothing (Enter/copy unchanged)"
+    chk "$(evnum "globalThis._del.length")"    "0" "a printable key on a card deletes nothing (Delete unchanged)"
+
+    # A SECOND printable key while already typing in search appends normally (the
+    # route only fires from a card; once in search the entry types as usual).
+    nested_key o; sleep 0.4
+    chk "$(searchtext | grep -qs 'go' && echo y || echo n)" "y" "a following printable key keeps typing in the search box ('go')"
+
+    # --- Up returns to search: re-enter the shelf, focus a card, then a REAL Up
+    #     keystroke must hand focus back to the search box. ---
+    nested_eval "(function(){ $LU._shelf.load(); return 1; })()" >/dev/null 2>&1
+    sleep 0.6
+    nested_eval "(function(){global.stage.set_key_focus($LU._shelf._cardBox.get_children()[2]); return 1;})()" >/dev/null 2>&1
+    sleep 0.2
+    chk "$(focuseq "$LU._shelf._cardBox.get_children()[2]")" "1" "(setup) a card holds key focus before Up"
+    nested_key Up; sleep 0.3
+    chk "$(focuseq "$LU._searchEntry.get_clutter_text()")" "1" "Up from a focused card returns focus to the search box"
+
+    # --- REGRESSION (011): Left/Right still NAVIGATE between cards (not routed to search) ---
+    nested_eval "(function(){global.stage.set_key_focus($LU._searchEntry.get_clutter_text()); return 1;})()" >/dev/null 2>&1
+    sleep 0.2
+    nested_key Right; sleep 0.3
+    chk "$(focuseq "$LU._shelf._cardBox.get_first_child()")" "1" "Right from search still navigates to the first card (011 not regressed)"
+    nested_key Right; sleep 0.3
+    chk "$(focuseq "$LU._shelf._cardBox.get_children()[1]")" "1" "Right still moves between cards (011 not regressed)"
+
+    # --- REGRESSION (020): Delete on a focused card still deletes THAT card ---
+    nested_eval "(function(){ globalThis._del=[]; global.stage.set_key_focus($LU._shelf._cardBox.get_children()[1]); return 1; })()" >/dev/null 2>&1
+    sleep 0.2
+    nested_key Delete; sleep 0.4
+    chk "$(evnum "globalThis._del.length")" "1" "Delete on a focused card still deletes it (020 not regressed)"
+    ;;
 
   *) echo "  note: no feature-specific checks for $ID (generic only)";;
 esac

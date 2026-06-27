@@ -175,6 +175,7 @@ export default class StrataUIExtension extends Extension {
             if (event.type() !== Clutter.EventType.KEY_PRESS)
                 return Clutter.EVENT_PROPAGATE;
             const sym = event.get_key_symbol();
+            const state = event.get_state();
             const shelf = this._shelf;
             const isSpace = sym === Clutter.KEY_space || sym === Clutter.KEY_KP_Space;
             if (shelf?.isPeeking()) {
@@ -203,6 +204,37 @@ export default class StrataUIExtension extends Extension {
                 if (!shelf?.moveFocus(-1) && searchText)
                     global.stage.set_key_focus(searchText);
                 return Clutter.EVENT_STOP;
+            }
+            // Type-on-card → search (feature 023). A Card is an St.Button: it takes
+            // no text input, so a printable key pressed while a card is focused is
+            // simply LOST and the user can't refine the search after arrowing in.
+            // When a card holds focus, route the keystroke to the search box:
+            //   * Up moves focus back to the box (the vertical counterpart to
+            //     Left-off-the-first-card returning to search);
+            //   * a printable character focuses the box and types that character,
+            //     so the search runs exactly as if it had been typed there.
+            // Only when a card is focused — with focus already in the search box the
+            // ClutterText handles typing/Up itself, so we propagate untouched.
+            if (searchText && shelf?.hasFocusedCard()) {
+                if (sym === Clutter.KEY_Up) {
+                    global.stage.set_key_focus(searchText);
+                    return Clutter.EVENT_STOP;
+                }
+                // A modifier chord (Ctrl/Alt/Super) is a command, not text — leave it
+                // for the bubble handler (Alt+1…9 copy) / the card. Only re-inject a
+                // bare printable character (one the keymap maps to a Unicode glyph).
+                const plain = !(state & (Clutter.ModifierType.CONTROL_MASK |
+                    Clutter.ModifierType.MOD1_MASK | Clutter.ModifierType.SUPER_MASK));
+                const uni = plain ? event.get_key_unicode() : '';
+                // Accept only a real printable glyph: a code point at/after 0x20 and
+                // not the DEL control (0x7f, which Delete/KP_Delete map to — those
+                // must reach the bubble handler to delete the focused card, 020).
+                // Backspace/Tab/Enter/Escape map below 0x20 and are skipped too.
+                const code = uni ? uni.codePointAt(0) : 0;
+                if (code >= 0x20 && code !== 0x7f) {
+                    this._typeIntoSearch(uni);
+                    return Clutter.EVENT_STOP;
+                }
             }
             return Clutter.EVENT_PROPAGATE;
         });
@@ -261,6 +293,25 @@ export default class StrataUIExtension extends Extension {
             this._hideVisor();
             return Clutter.EVENT_STOP;
         });
+    }
+
+    /** Re-inject a typed character into the search box (feature 023). Called from
+     *  the capture handler when a printable key is pressed while a Card has focus —
+     *  a Card is an St.Button and would otherwise swallow the key. We focus the
+     *  entry's ClutterText, then APPEND the character at the end and park the cursor
+     *  there: the entry's 'text-changed' fires (driving setQuery → search) so the
+     *  result is what the user sees, not an internal proxy. We append rather than
+     *  rely on the key reaching the entry because the original KEY_PRESS was already
+     *  delivered to the card; re-injecting via the model keeps the char from being
+     *  lost without synthesizing a second event. */
+    _typeIntoSearch(ch) {
+        const entry = this._searchEntry;
+        const ct = entry?.get_clutter_text();
+        if (!ct) return;
+        global.stage.set_key_focus(ct);
+        const text = entry.get_text() ?? '';
+        entry.set_text(text + ch);
+        ct.set_cursor_position(-1);   // cursor to the end, ready for the next key
     }
 
     _positionVisor() {
