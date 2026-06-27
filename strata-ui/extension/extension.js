@@ -259,10 +259,17 @@ export default class StrataUIExtension extends Extension {
         this._band.y_align = edge === 'top' ? Clutter.ActorAlign.START : Clutter.ActorAlign.END;
     }
 
-    /** Gear handler: drop the modal grab, then open our prefs in-UI (req #5). */
+    /** Gear handler: drop the modal grab, then open our prefs in-UI (req #5).
+     *  Hide FIRST so opening prefs never depends on our keyboard grab still being
+     *  up, and wrap openPreferences() so a failure is logged loudly instead of
+     *  looking like "the gear just closed the visor" (feature 013). */
     _onGearClicked() {
         this._hideVisor();
-        this.openPreferences();
+        try {
+            this.openPreferences();
+        } catch (e) {
+            console.error('[Strata UI] failed to open preferences:', e);
+        }
     }
 
     _toggleVisor() {

@@ -5,6 +5,43 @@ Entries are headed with a UTC ISO-8601 timestamp (YYYY-MM-DDThh:mm:ssZ, from
 Harness: https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents
 
 ────────────────────────────────────────────────────────────────────────
+2026-06-27T17:30:00Z — 013: Gear opens the preferences window (live) (TDD red→green)
+- Investigated the suspected Adw incompatibility FIRST and it did NOT reproduce:
+  running GNOME is Shell 50.1 / libadwaita 1.9.0, and every Adw widget prefs.js
+  uses still EXISTS in 1.9 — including Adw.MessageDialog (deprecated since 1.6 but
+  not removed). Proven by actually BUILDING the full prefs UI (both pages + the
+  shortcut dialog) in-process against the live libadwaita: it constructs clean.
+- Key harness finding: the OpenExtensionPrefs D-Bus path CANNOT catch a prefs.js
+  construction failure here. The prefs window is built in a SEPARATE process whose
+  errors never reach the nested shell's log — a deliberately broken prefs.js
+  (bogus Adw widget at construction) still returned success from OpenExtensionPrefs
+  with nothing in shell.log. So the spec's "grep the shell log" check would have
+  been a fake green. Replaced it with a real in-process construction test.
+- NEW test-harness/prefs-construct.js: a standalone gjs -m harness that loads
+  prefs.js (stripping only the shell-only ExtensionPreferences resource import +
+  the `extends` clause, leaving every widget build intact), supplies a real
+  Gio.Settings from the shipped compiled gschema, and calls fillPreferencesWindow
+  + _showShortcutDialog against the running Adw. Prints PREFS-CONSTRUCT-OK / exit 0
+  on success, FAIL / exit 1 on any throw. Validated it goes RED on a bogus widget.
+- The actual, testable defect fixed (extension.js _onGearClicked): it opened prefs
+  with NO error handling, so any failure was silent — exactly "the gear just closes
+  the visor, no window appears, nothing to debug". Now it hides the visor FIRST
+  (opening must not depend on the modal grab) then opens prefs inside try/catch that
+  logs failures with the [Strata UI] prefix. Order (_hideVisor before
+  openPreferences) is asserted.
+- TEST FIRST (verify.sh case 013): static asserts _onGearClicked drops the modal
+  before opening prefs and wraps openPreferences in a logging try/catch (RED before
+  the fix — none of that existed); keeps the 008 spy (gear St.Button + handler calls
+  openPreferences + dismisses); and runs prefs-construct.js against the live Adw
+  (GREEN — prefs builds clean; this guards GNOME 48/49/50). Skips the construct step
+  with a note if no display. GREEN after the fix; full suite 001-013 green.
+- Run: bash test-harness/verify.sh 013   (suite: bash test-harness/verify.sh all)
+- NEXT: 014 install docs (one Strata extension at a time) — last v1 feature.
+
+────────────────────────────────────────────────────────────────────────
+2026-06-27T17:15:30Z — starting 013: Gear opens the preferences window (live)
+
+────────────────────────────────────────────────────────────────────────
 2026-06-27T17:14:00Z — 012: Paste-back writes the chosen entry, end-to-end (TDD red→green)
 - Live bug: choosing a card pasted the MOST-RECENT entry, not the chosen one. The
   005 test only asserted the internal _lastWrite, so it never saw the real clipboard

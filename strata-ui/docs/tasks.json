@@ -278,7 +278,7 @@
         "ADR-0001",
         "strata@edu4rdshl.dev/prefs.js"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "014",

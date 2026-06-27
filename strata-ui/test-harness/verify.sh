@@ -698,6 +698,49 @@ case "$ID" in
     chk "$(evnum "(function(){return (globalThis._clip===globalThis._h[0].content_text)?1:0;})()")" "0" "clipboard is NOT the most-recent entry (D)"
     ;;
 
+  013)
+    LU="Main.extensionManager.lookup('$UUID').stateObj"
+    # --- the live bug was: gear closes the visor but no prefs window appears, with
+    #     NOTHING logged to debug it. The OpenExtensionPrefs D-Bus path can't catch a
+    #     prefs.js construction failure here (the prefs window is built in a separate
+    #     process whose errors never reach this shell's log — verified: a deliberately
+    #     broken prefs.js still returned success with no log error). So we (1) build
+    #     the REAL prefs UI in-process against the running libadwaita, and (2) require
+    #     _onGearClicked to stop failing silently. ---
+
+    # --- static: _onGearClicked must drop the modal first, then open prefs inside a
+    #     try/catch that logs (no more silent "the gear just closed the visor") ---
+    gear="$(awk '/_onGearClicked\(\) \{/{f=1} f{print} f&&/^    \}/{exit}' "$EXT/extension.js")"
+    chk "$(printf '%s' "$gear" | grep -qs 'openPreferences'             && echo y || echo n)" "y" "_onGearClicked calls openPreferences()"
+    chk "$(printf '%s' "$gear" | grep -qs 'try'                         && echo y || echo n)" "y" "_onGearClicked wraps openPreferences in try {"
+    chk "$(printf '%s' "$gear" | grep -qs 'catch'                       && echo y || echo n)" "y" "_onGearClicked has a catch for prefs failures"
+    chk "$(printf '%s' "$gear" | grep -qs '\[Strata UI\]'              && echo y || echo n)" "y" "_onGearClicked logs the failure with the [Strata UI] prefix"
+    # the visor is hidden BEFORE openPreferences (opening must not depend on the grab)
+    chk "$(printf '%s' "$gear" | awk '/_hideVisor/{h=NR} /openPreferences/{o=NR} END{print (h&&o&&h<o)?"y":"n"}')" "y" "_hideVisor() runs before openPreferences() (prefs do not depend on the modal)"
+
+    # --- runtime (nested shell): the gear is a real St.Button and its handler still
+    #     calls openPreferences() — keep the 008 spy contract ---
+    nested_eval "(function(){ var e=$LU; globalThis._po=0; e.openPreferences=function(){ globalThis._po++; }; return 1; })()" >/dev/null 2>&1
+    chk "$(evnum "(function(){return ($LU._gearButton instanceof imports.gi.St.Button)?1:0;})()")" "1" "header has a gear St.Button"
+    nested_eval "(function(){ $LU._onGearClicked(); return 1; })()" >/dev/null 2>&1
+    sleep 0.3
+    chk "$(evnum "globalThis._po")" "1" "the gear handler calls openPreferences()"
+    chk "$(evnum "(function(){return $LU._visorVisible?1:0;})()")" "0" "the gear handler also dismisses the visor"
+
+    # --- the real test: construct the WHOLE prefs UI (both pages + the shortcut
+    #     dialog) against the running GNOME's libadwaita. RED if prefs.js throws under
+    #     the live Adw (the feature's suspected Adw incompatibility); GREEN if it
+    #     builds clean. Needs a display (the running session); skip-with-note if none. ---
+    if [ -n "${WAYLAND_DISPLAY:-}" ] || [ -n "${DISPLAY:-}" ]; then
+      pc="$(gjs -m "$HARNESS/prefs-construct.js" "$EXT/schemas" "$EXT/prefs.js" 2>&1)"; pcrc=$?
+      chk "$pcrc" "0" "prefs.js builds the full prefs UI under the running libadwaita (exit 0)"
+      chk "$(printf '%s' "$pc" | grep -qs 'PREFS-CONSTRUCT-OK' && echo y || echo n)" "y" "prefs construction reports OK (General+Privacy pages + shortcut dialog)"
+      [ "$pcrc" = 0 ] || { echo "  prefs-construct output:"; printf '%s\n' "$pc" | sed 's/^/    /'; }
+    else
+      echo "  note: no display (WAYLAND_DISPLAY/DISPLAY unset) — skipping live prefs-construct"
+    fi
+    ;;
+
   *) echo "  note: no feature-specific checks for $ID (generic only)";;
 esac
 
