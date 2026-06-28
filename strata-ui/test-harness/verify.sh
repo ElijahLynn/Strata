@@ -311,7 +311,7 @@ case "$ID" in
       sh._fetchThumbnail=function(id){ return Promise.resolve(new Uint8Array([137,80,78,71])); };
       sh._fetchContent=function(id){
         _fc.push(id);
-        if (id==='img')  return Promise.resolve(['image/png', new Uint8Array([137,80,78,71,13,10,26,10,0,0,0,13])]);
+        if (id==='img')  return Promise.resolve(['image/png', new Uint8Array([137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,2,0,0,0,2,8,6,0,0,0,114,182,13,36,0,0,0,19,73,68,65,84,120,156,99,249,223,193,240,159,1,8,152,24,160,0,0,39,205,2,141,152,172,202,59,0,0,0,0,73,69,78,68,174,66,96,130])]); // a real 2x2 RGBA PNG (033: in-process decode)
         if (id==='code') return Promise.resolve(['text/plain', new TextEncoder().encode(globalThis._CODE)]);
         if (id==='prose')return Promise.resolve(['text/plain', new TextEncoder().encode('just some plain english words here with nothing special at all')]);
         return Promise.resolve(['text/plain', new TextEncoder().encode('X')]);
@@ -345,7 +345,7 @@ case "$ID" in
     chk "$(evnum "(function(){return $LU._shelf.isPeeking()?1:0;})()")" "1" "Space opens the Peek for an image"
     chk "$(evnum "(function(){var a=globalThis._fc; return (a.length===1 && a[0]==='img')?1:0;})()")" "1" "the image is decoded on demand (one GetItemContent on keypress)"
     chk "$(evnum "(function(){return ($LU._shelf._peek._rendered.kind==='image')?1:0;})()")" "1" "image Peek shows the full-resolution image"
-    chk "$(evnum "(function(){return ((($LU._shelf._peek._imageView.style)||'').indexOf('background-image')>=0)?1:0;})()")" "1" "the decoded image blob is applied to the Peek image view"
+    chk "$(evnum "(function(){var p=$LU._shelf._peek; return (p&&p._imageView&&(p._imageView.get_content() instanceof imports.gi.Clutter.Content))?1:0;})()")" "1" "the decoded image blob is applied to the Peek image view as an in-process content (033)"
     nested_eval "(function(){ $LU._shelf.closePeek(); return 1; })()" >/dev/null 2>&1
     sleep 0.2
 
@@ -1561,7 +1561,7 @@ case "$ID" in
       sh._fetchPage=function(o,l){ return Promise.resolve(_bM.slice(o,o+l)); };
       sh._fetchThumbnail=function(id){ return Promise.resolve(new Uint8Array([137,80,78,71])); };
       globalThis._gate=null;
-      sh._fetchContent=function(id){ return new Promise(function(res){ globalThis._gate=function(){ res(['image/png', new Uint8Array([137,80,78,71,13,10,26,10,0,0,0,13])]); }; }); };
+      sh._fetchContent=function(id){ return new Promise(function(res){ globalThis._gate=function(){ res(['image/png', new Uint8Array([137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,2,0,0,0,2,8,6,0,0,0,114,182,13,36,0,0,0,19,73,68,65,84,120,156,99,249,223,193,240,159,1,8,152,24,160,0,0,39,205,2,141,152,172,202,59,0,0,0,0,73,69,78,68,174,66,96,130])]); }; }); }; // a real 2x2 RGBA PNG (033)
       e._showVisor(); return 1;
     })()" >/dev/null 2>&1
     sleep 0.7
@@ -1582,7 +1582,8 @@ case "$ID" in
     sleep 0.5
     chk "$(evnum "(function(){return ($LU._shelf._peek._rendered.kind==='image')?1:0;})()")" "1" "once bytes arrive the image Peek renders the full-resolution image"
     chk "$(evnum "(function(){var p=$LU._shelf._peek; return (p&&p._loading&&!p._loading.visible)?1:0;})()")" "1" "the loading state hides once the image is shown"
-    chk "$(evnum "(function(){return ((($LU._shelf._peek._imageView.style)||'').indexOf('background-image')>=0)?1:0;})()")" "1" "the decoded image blob is applied to the Peek image view"
+    chk "$(evnum "(function(){var p=$LU._shelf._peek; return (p&&p._imageView&&(p._imageView.get_content() instanceof imports.gi.Clutter.Content))?1:0;})()")" "1" "the decoded image blob is applied to the Peek image view as an in-process content (033)"
+    chk "$(evnum "(function(){var s=($LU._shelf._peek._imageView.style)||''; return (s.indexOf('background-image')<0)?1:0;})()")" "1" "the image view carries NO CSS background-image url (033: in-process, not glycin file-load)"
 
     # (a) BRIGHTNESS / Z-ORDER (the primary teeth): the dim is a SEPARATE actor that
     #     sits BELOW the image in child order, the image is at full opacity, and the
@@ -1814,6 +1815,126 @@ case "$ID" in
     sleep 0.2
     nested_key Down; sleep 0.3
     chk "$(evnum "(function(){return $LU._shelf.hasFocusedCard()?1:0;})()")" "1" "Down from search also re-enters the shelf at a real card (032, no skip)"
+    ;;
+
+  033)
+    LU="Main.extensionManager.lookup('$UUID').stateObj"
+    # --- Slice 033: the Peek IMAGE was BLACK 'Loading…' for ~2s then slow (~1s) to
+    #     dismiss. Root cause: peek.js wrote the bytes to a TEMP FILE and showed them
+    #     via CSS background-image: url("file://…"), which on this system goes through
+    #     St.TextureCache's file-loader + glycin sandbox (cold bwrap spin-up + temp-file
+    #     I/O ≈ the 2s; the same heavy GL texture is slow to tear down ≈ the 1s Escape).
+    #     The fix decodes the in-memory blob IN-PROCESS (GdkPixbuf.new_from_stream over a
+    #     Gio.MemoryInputStream → St.ImageContent set on the image actor) — NO temp file,
+    #     NO file:// CSS, NO St.TextureCache; CACHES the decoded content per id and can
+    #     PRE-FETCH the focused card in the background; dismiss just drops the content
+    #     reference (cheap, no glycin/St.TextureCache teardown).
+    #
+    #     NB (headless): we assert the USER-OBSERVABLE STRUCTURE — the image actor is
+    #     backed by an in-process Clutter.Content (St.ImageContent), NOT a CSS
+    #     background-image url; the path writes no temp file / no file://; a gated fetch
+    #     yields a present content; the cache + prefetch skip re-fetching; Escape unmaps
+    #     synchronously AND releases the displayed content. The wall-clock instant-ness is
+    #     only live-verifiable (see claude-progress.txt timing numbers).
+
+    # --- static: in-process decode path, no temp-file / file:// / CSS background-image ---
+    if grep -qs 'background-image' "$EXT/ui/peek.js"; then
+      echo "  FAIL: peek.js still uses a CSS background-image (glycin/St.TextureCache path)"; fail=1
+    else echo "  ok  : peek.js uses NO CSS background-image (no St.TextureCache image path)"; fi
+    if grep -qs 'file_set_contents' "$EXT/ui/peek.js"; then
+      echo "  FAIL: peek.js still writes a temp file for the image"; fail=1
+    else echo "  ok  : peek.js writes NO temp file for the image"; fi
+    if grep -qs 'file://' "$EXT/ui/peek.js"; then
+      echo "  FAIL: peek.js still references a file:// url"; fail=1
+    else echo "  ok  : peek.js references NO file:// url"; fi
+    chk "$(grep -qs 'ImageContent'   "$EXT/ui/peek.js" && echo y || echo n)" "y" "Peek decodes to an in-process St.ImageContent"
+    chk "$(grep -qs 'new_from_stream' "$EXT/ui/peek.js" && echo y || echo n)" "y" "Peek decodes the in-memory blob via GdkPixbuf.new_from_stream"
+    chk "$(grep -qs 'GdkPixbuf'      "$EXT/ui/peek.js" && echo y || echo n)" "y" "Peek imports GdkPixbuf (in-process decode, not glycin file-load)"
+    chk "$(grep -qs 'prefetch'       "$EXT/ui/peek.js" && echo y || echo n)" "y" "Peek can pre-fetch+decode a card's image in the background"
+
+    # --- runtime: stub the seams; img1's content fetch is GATED so we can observe the
+    #     loading window BEFORE the bytes arrive; the bytes are a REAL (decodable) PNG so
+    #     the in-process decode genuinely produces a content. _fcN counts fetches per id
+    #     (proves the cache/prefetch skip re-fetching). ---
+    nested_eval "(function(){
+      var e=$LU, sh=e._shelf;
+      globalThis._bM=[
+        {id:'img1', mime_type:'image/png', content_text:null, created_at:3, has_thumbnail:true},
+        {id:'img2', mime_type:'image/png', content_text:null, created_at:2, has_thumbnail:true}
+      ];
+      sh._fetchPage=function(o,l){ return Promise.resolve(_bM.slice(o,o+l)); };
+      sh._fetchThumbnail=function(id){ return Promise.resolve(new Uint8Array([137,80,78,71])); };
+      // a real 2x2 RGBA PNG (valid bytes → in-process GdkPixbuf decode succeeds)
+      globalThis._PNG=new Uint8Array([137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,2,0,0,0,2,8,6,0,0,0,114,182,13,36,0,0,0,19,73,68,65,84,120,156,99,249,223,193,240,159,1,8,152,24,160,0,0,39,205,2,141,152,172,202,59,0,0,0,0,73,69,78,68,174,66,96,130]);
+      globalThis._fcN={}; globalThis._gate=null;
+      sh._fetchContent=function(id){
+        _fcN[id]=(_fcN[id]||0)+1;
+        if (id==='img1') return new Promise(function(res){ globalThis._gate=function(){ res(['image/png', globalThis._PNG]); }; });
+        return Promise.resolve(['image/png', globalThis._PNG]);
+      };
+      e._showVisor(); return 1;
+    })()" >/dev/null 2>&1
+    sleep 0.7
+
+    # Open img1; its fetch is still pending (mimics the cold decode/transfer window).
+    nested_eval "(function(){ $LU._shelf.peek($LU._shelf._cards.get('img1')); return 1; })()" >/dev/null 2>&1
+    sleep 0.4
+    chk "$(evnum "(function(){return $LU._shelf.isPeeking()?1:0;})()")" "1" "Space opens the Peek immediately (before the image bytes arrive)"
+    chk "$(evnum "(function(){var p=$LU._shelf._peek; return (p&&p._loading&&p._loading.visible)?1:0;})()")" "1" "a lightweight loading state shows during the fetch (not a black blank)"
+    chk "$(evnum "(function(){var p=$LU._shelf._peek; return (p&&p._imageView&&!p._imageView.visible)?1:0;})()")" "1" "the image view is hidden while the loading state shows"
+    chk "$(evnum "(function(){var p=$LU._shelf._peek; return (p&&p._imageView&&p._imageView.get_content()===null)?1:0;})()")" "1" "no image content is set yet (the gated fetch is still pending)"
+
+    # Release the gated fetch -> the bytes are decoded IN-PROCESS and a content appears.
+    nested_eval "(function(){ if(globalThis._gate) globalThis._gate(); return 1; })()" >/dev/null 2>&1
+    sleep 0.5
+    chk "$(evnum "(function(){return ($LU._shelf._peek._rendered.kind==='image')?1:0;})()")" "1" "once bytes arrive the image Peek renders the full-resolution image"
+    chk "$(evnum "(function(){var p=$LU._shelf._peek; return (p&&p._loading&&!p._loading.visible)?1:0;})()")" "1" "the loading state hides once the image is shown"
+    # THE PRIMARY 033 TEETH: the image actor is backed by an in-process Clutter.Content
+    # (St.ImageContent), NOT a CSS background-image url.
+    chk "$(evnum "(function(){var p=$LU._shelf._peek; return (p&&p._imageView&&(p._imageView.get_content() instanceof imports.gi.Clutter.Content))?1:0;})()")" "1" "the image actor is backed by an in-process Clutter.Content (St.ImageContent), not a CSS url"
+    chk "$(evnum "(function(){var s=($LU._shelf._peek._imageView.style)||''; return (s.indexOf('background-image')<0)?1:0;})()")" "1" "the live image actor's style carries NO background-image url"
+    chk "$(evnum "(function(){var s=($LU._shelf._peek._imageView.style)||''; return (s.indexOf('file://')<0)?1:0;})()")" "1" "the live image actor's style carries NO file:// url"
+
+    # 030 invariants stay GREEN: dim is the bottom child, the image is ABOVE it, full opacity.
+    chk "$(evnum "(function(){var p=$LU._shelf._peek; if(!p||!p._dim||!p._overlay) return 0; var k=p._overlay.get_children(); return (k.indexOf(p._dim)===0)?1:0;})()")" "1" "the dim/scrim is the BOTTOM child of the Peek overlay (030)"
+    chk "$(evnum "(function(){var p=$LU._shelf._peek; if(!p||!p._dim||!p._imageView||!p._overlay) return 0; var k=p._overlay.get_children(); return (k.indexOf(p._imageView)>k.indexOf(p._dim)&&k.indexOf(p._dim)>=0)?1:0;})()")" "1" "the image actor is ABOVE the dim/scrim in child order (030)"
+    chk "$(evnum "(function(){var p=$LU._shelf._peek; return (p&&p._imageView&&p._imageView.get_paint_opacity()===255)?1:0;})()")" "1" "the image actor's effective (paint) opacity is full (030: bright, not dimmed)"
+
+    # CACHE: a decoded content is cached per id; re-peeking img1 is a cache HIT — NO new
+    # fetch (proves the cache makes a re-peek instant, not another 2s decode).
+    chk "$(evnum "(function(){return (globalThis._fcN['img1']===1)?1:0;})()")" "1" "(setup) img1 fetched exactly once for the first peek"
+    nested_eval "(function(){ $LU._shelf.closePeek(); return 1; })()" >/dev/null 2>&1
+    sleep 0.2
+    nested_eval "(function(){ $LU._shelf.peek($LU._shelf._cards.get('img1')); return 1; })()" >/dev/null 2>&1
+    sleep 0.3
+    chk "$(evnum "(function(){return (globalThis._fcN['img1']===1)?1:0;})()")" "1" "re-peeking img1 is a cache HIT — no second GetItemContent (instant re-peek)"
+    chk "$(evnum "(function(){var p=$LU._shelf._peek; return (p&&p._imageView&&(p._imageView.get_content() instanceof imports.gi.Clutter.Content))?1:0;})()")" "1" "the cached content is shown on re-peek (no re-decode)"
+    nested_eval "(function(){ $LU._shelf.closePeek(); return 1; })()" >/dev/null 2>&1
+    sleep 0.2
+
+    # PRE-FETCH: warm img2 in the background (decode without showing); a later peek of
+    # img2 is then a cache hit — the focused-card image is ready BEFORE Space.
+    nested_eval "(function(){ $LU._shelf._peek.prefetch($LU._shelf._cards.get('img2')); return 1; })()" >/dev/null 2>&1
+    sleep 0.4
+    chk "$(evnum "(function(){return (globalThis._fcN['img2']===1)?1:0;})()")" "1" "prefetch fetches+decodes img2 in the background (cache warmed)"
+    chk "$(evnum "(function(){return $LU._shelf.isPeeking()?1:0;})()")" "0" "prefetch does NOT open the Peek (background warm only)"
+    nested_eval "(function(){ $LU._shelf.peek($LU._shelf._cards.get('img2')); return 1; })()" >/dev/null 2>&1
+    sleep 0.3
+    chk "$(evnum "(function(){return (globalThis._fcN['img2']===1)?1:0;})()")" "1" "peeking img2 after prefetch is a cache HIT (no extra fetch — instant)"
+    chk "$(evnum "(function(){var p=$LU._shelf._peek; return (p&&p._imageView&&(p._imageView.get_content() instanceof imports.gi.Clutter.Content))?1:0;})()")" "1" "the prefetched content is shown instantly on peek"
+
+    # DISMISS: a REAL Escape tears the overlay down SYNCHRONOUSLY and releases the
+    # displayed content cheaply (no glycin/St.TextureCache teardown == no ~1s lag).
+    nested_key Escape
+    sleep 0.3
+    chk "$(evnum "(function(){return $LU._shelf.isPeeking()?1:0;})()")" "0" "a real Escape dismisses the Peek"
+    chk "$(evnum "(function(){return $LU._shelf._peek._overlay.mapped?1:0;})()")" "0" "Escape unmaps the Peek overlay synchronously (no lingering overlay)"
+    chk "$(evnum "(function(){var p=$LU._shelf._peek; return (p&&p._imageView&&p._imageView.get_content()===null)?1:0;})()")" "1" "Escape releases the displayed image content (cheap teardown, no glycin)"
+    chk "$(evnum "(function(){return $LU._visorVisible?1:0;})()")" "1" "Escape closes only the Peek; the visor stays open"
+
+    # leave an image Peek up for the screenshot (cache hit → instant)
+    nested_eval "(function(){ $LU._shelf.peek($LU._shelf._cards.get('img1')); return 1; })()" >/dev/null 2>&1
+    sleep 0.3
     ;;
 
   *) echo "  note: no feature-specific checks for $ID (generic only)";;

@@ -176,8 +176,10 @@
   font-family: monospace;
   font-size: 15px;
 }
-/* The full-resolution image fills the overlay, letter-boxed (contain), at full
- * brightness — NO dark tint of its own (the dim sits behind it). */
+/* The full-resolution image is an in-process St.ImageContent (033) set on this
+ * actor and letter-boxed by its content-gravity (RESIZE_ASPECT, the old "contain").
+ * It paints at full brightness with NO dark tint of its own (the dim sits behind
+ * it) and NO CSS background-image / file:// url (no glycin file-load). */
 .strata-peek-image {
   border-radius: 6px;
 }

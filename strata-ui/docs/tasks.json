@@ -697,7 +697,7 @@
         "ADR-0007",
         "ADR-0003"
       ],
-      "passes": false
+      "passes": true
     }
   ]
 }

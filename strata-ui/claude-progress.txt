@@ -5,6 +5,69 @@ Entries are headed with a UTC ISO-8601 timestamp (YYYY-MM-DDThh:mm:ssZ, from
 Harness: https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents
 
 ────────────────────────────────────────────────────────────────────────
+2026-06-28T03:11:08Z — 033: Peek image decodes IN-PROCESS (no temp-file / no CSS background image / no St.TextureCache file-load) → cached + prefetchable, fast Escape (TDD red→green→teeth)
+
+THE BUG (live, post-030): Space on an image card showed a BLACK "Loading…" for ~2s,
+then Escape was still ~1s slow. The old peek.js wrote the blob to a TEMP FILE and
+showed it via a CSS background image pointing at that file URL (peek.js ~line 247),
+which on GNOME goes through St.TextureCache's file loader + the glycin sandbox.
+
+DIAGNOSIS (measured in the nested shell + a fresh gjs; numbers are this hardware,
+GNOME Shell 50.2):
+  (a) GetItemContent return — the harness stubs this seam, so I did not time the real
+      daemon here; but the parent's correction holds: it is a LOCAL D-Bus blob
+      transfer = single-digit ms, NOT the bottleneck. The temp-file WRITE itself
+      measured 0.097ms — so neither the daemon return nor the file write is the 2s.
+  (b) OLD path (temp file + CSS background image → St.TextureCache → glycin): the cost
+      is the glycin decode, which is OUT-OF-PROCESS in a bwrap sandbox. A COLD bwrap
+      spin-up is the ~2s the user sees; the heavy glycin-backed GL texture is also
+      what made Escape ~1s (the teardown, not close()).
+  (c) NEW in-process path (GdkPixbuf.new_from_stream over a Gio.MemoryInputStream →
+      St.ImageContent.set_bytes): 1920x1080 decode ~16.5ms + Cogl upload ~18.1ms =
+      ~34ms total in-shell; ~20ms cold / ~9ms warm decode in a fresh gjs. Well under
+      the ~150ms target, synchronous, then cached.
+
+FINDING worth recording (do not re-litigate, just note): on THIS Arch box gdk-pixbuf
+has NO native loaders — it routes through glycin too (decoding deliberately-corrupt
+bytes returns `GdkPixbuf.PixbufError: Remote error: org.gnome.glycin.Error`). So the
+in-process GdkPixbuf decode also uses a glycin sandbox under the hood here. BUT a
+WARM glycin decode is ~10-20ms, not 2s — so the fix still kills both symptoms, by
+different levers than "no glycin at all": (1) no temp-file + no St.TextureCache CSS
+file-load machinery on the keypress; (2) CACHE per id so re-peeks are instant; (3)
+PREFETCH so the focused card's one-time cold decode happens before Space; (4) dismiss
+just drops the actor's content reference (a pointer swap) — no St.TextureCache GL
+teardown — so Escape is immediate. (Clutter.Image from the original recipe does not
+exist in Shell 50; St.ImageContent is the vehicle, and set_bytes/set_data here take a
+Cogl.Context as their first arg: global.stage.get_context().get_backend().get_cogl_context().)
+
+THE FIX (peek.js only, + a CSS comment): _decodeToContent() decodes the in-memory blob
+to an St.ImageContent and _applyImageContent() sets it as the image actor's content
+(content-gravity RESIZE_ASPECT = the old "contain"), ABOVE the dim, at full opacity
+(030 kept). _imageCache (Map, cap 8, LRU-ish eviction) holds decoded contents; open()
+shows a cache hit instantly with no fetch; prefetch(card) warms the focused card in
+the background (dedup via _inflight); close() releases the displayed content cheaply
+(set_content(null)) while the cache survives for instant re-peek; destroy() clears the
+cache (bounds memory to zero on disable). All temp-file machinery (_imageFile,
+_clearImageFile, extFor, file_set_contents) is deleted.
+
+VERIFY: new verify.sh 033) is teeth-proven — HEADLESS-ASSERTED: peek.js has no
+temp-file / no `file://` / no CSS background image; the live image actor is backed by
+an in-process Clutter.Content (St.ImageContent), not a CSS url; a gated fetch yields a
+present content; re-peek + post-prefetch peek are cache HITS (fetch counter unchanged);
+Escape unmaps the overlay synchronously AND releases the displayed content; 030's dim-
+bottom / image-above / full-paint-opacity invariants stay GREEN. Teeth: re-introducing
+the CSS background-image url in _applyImageContent flips 033 RED on exactly those
+asserts; restoring → GREEN. 006 + 030 updated (real 2x2 PNG bytes + content-backed
+assertions instead of the old `background-image`-in-style check) and stay green.
+ONLY-LIVE-VERIFIABLE: the wall-clock instant-ness (headless GL can't render a real
+photo and can't time the live cold-start) — backed by the (c) numbers above. NOTE:
+prefetch(card) is implemented + tested on the Peek API but is NOT yet auto-wired to
+shelf focus changes (UI-only constraint: do not touch shelf.js) — a future one-line
+`this._peek?.prefetch(card)` in shelf `_focusCard` makes the FIRST focused-card peek
+instant too; until then the cache already makes every re-peek instant. `verify.sh all`
+= ALL GREEN (30 cases incl. 033; 006/030 green).
+
+────────────────────────────────────────────────────────────────────────
 2026-06-28T00:52:59Z — 029/031/032/027: nav-model pass — focus sticks on open, Left stays in shelf, Down re-enters, no skip (TDD red→green→teeth)
 
 029 (first-card focus STICKS on open). The 025 guard re-asserted first-card focus against
