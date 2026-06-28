@@ -591,6 +591,68 @@
         "ADR-0001"
       ],
       "passes": true
+    },
+    {
+      "id": "029",
+      "title": "First card loses focus right after open (highlights then dehighlights), breaking arrow nav",
+      "category": "bugfix",
+      "description": "Live (post-relog) gap in slice 025: on visor open the first card highlights for an instant then DEhighlights — key focus drifts off it a tick after open — and Left/Right arrow nav then intermittently skips the first card. 025 added a bounded notify::key-focus guard (<=5 attempts) to counter Main.pushModal settling stage focus ASYNCHRONOUSLY after open and nulling it; it PASSES headless but in a real session focus still ends up off the first card, so the 025 test does not catch the live timing. This is almost certainly the same root cause as slice 027's intermittent card-skip (when focus has drifted to null/search, the next arrow behaves inconsistently). Fix: make first-card focus actually STICK after open in a live session (raise/relax the guard bound, re-assert on the correct signal, and/or set focus only AFTER pushModal fully settles), and add a headless test that reproduces the deferred focus-settle (simulate a key-focus change to null/search a tick after _showVisor) so the regression is caught with TEETH.",
+      "steps": [
+        "Reproduce headless: simulate the post-open async focus settle (stage key-focus goes to null or the search box a tick after _showVisor) and assert the first card REGAINS and KEEPS key focus AND .strata-card-focused (the current 025 guard fails this if the settle lands after its bounded attempts)",
+        "On open, the first card stays highlighted and does NOT dehighlight; focus does not drift to null/search",
+        "After open, a single Left/Right reliably moves between adjacent cards with NO skip (deterministic, repeatable)",
+        "Regression: 023 type-routing, 025 empty-corpus to search fallback, 011 nav all still pass; teeth-proven"
+      ],
+      "blockedBy": [
+        "025"
+      ],
+      "refs": [
+        "v1-spec.md",
+        "ADR-0004"
+      ],
+      "passes": false
+    },
+    {
+      "id": "030",
+      "title": "Peek image preview is too dark (dim overlay on top), slow to show (~2s) and slow to dismiss (Escape ~1s)",
+      "category": "bugfix",
+      "description": "Live (slice 006 Peek): Space on an image card eventually shows the full-resolution image, but (a) it appears VERY DARK, as if an ~80% dark overlay sits ON TOP of the image — likely the dim backdrop is above the image in z-order/child order, or the image is parented/opacity-set wrong; (b) it takes ~2 seconds to appear; (c) Escape to dismiss takes ~1 second. Fix the layering so the full-res image is clearly visible (dim backdrop BEHIND the image, not over it) and cut the show/dismiss latency. Separate UI-fixable latency (decode/parent/allocate on the main loop; the dismiss handler) from any inherent GetItemContent full-image transfer cost — the dim/z-order and the Escape-dismiss speed are pure UI. UI-only (ADR-0003); do not change the daemon.",
+      "steps": [
+        "The Peeked image renders at FULL brightness: the dim backdrop is BEHIND the image (child order / parenting), the image is not ~80% darkened or covered by an overlay",
+        "Space on an image card shows the preview promptly; investigate and reduce the ~2s delay (if the full-image decode is unavoidably slow, show a lightweight loading state instead of a dark blank, and decode without blocking the frame)",
+        "Escape (and Space) dismiss the Peek immediately with no perceptible lag (fix the ~1s dismiss delay)",
+        "TEST: assert the Peek image actor is ABOVE the dim backdrop in child order and its effective opacity is full (the dim element is below it); assert dismiss tears the overlay down synchronously; teeth-proven where headless allows (note any part that is only live-verifiable)"
+      ],
+      "blockedBy": [
+        "006"
+      ],
+      "refs": [
+        "v1-spec.md",
+        "ADR-0007"
+      ],
+      "passes": false
+    },
+    {
+      "id": "031",
+      "title": "Left at the first card stays put; only Up or typing escapes to the search box",
+      "category": "functional",
+      "description": "Behavior change (user): currently Left from the first card returns key focus to the search box (slice 011 boundary + 023). The user does NOT want the last Left press to jump up to the search box. Left/Right must only navigate WITHIN the shelf; the ONLY ways to move from a card to the search box are Up (023) or typing a printable character (023). So Left while the first card is focused is a no-op — focus stays on the first card / the shelf's left boundary, never the search box. This SUPERSEDES the 'Left off the first card -> search' behavior in moveFocus (shelf.js) and the corresponding assertions in the 011, 023, 025, and 027 verify cases (which currently expect or rely on Left returning to search); update those tests to the new contract WITHOUT weakening their real coverage. NOTE the interaction with 029 (first-card focus must stick) and 031 (this) both touch the nav/focus model — build 029 first, then 031 on top.",
+      "steps": [
+        "Left while the FIRST card is focused does NOT move focus to the search box — focus stays on the first card (Left at the left boundary is a no-op)",
+        "Right/Left continue to navigate between cards; Up (023) and printable typing (023) remain the ONLY routes from a card to the search box",
+        "moveFocus (or the key handler) no longer hands focus to search on Left-off-the-first-card",
+        "Update the 011 / 023 / 025 / 027 verify-case assertions that expect 'Left from the first card returns to search' to the new contract (Left keeps the first card focused, search box NOT focused); keep their other coverage intact; teeth-proven"
+      ],
+      "blockedBy": [
+        "011",
+        "023",
+        "025"
+      ],
+      "refs": [
+        "v1-spec.md",
+        "ADR-0004"
+      ],
+      "passes": false
     }
   ]
 }
