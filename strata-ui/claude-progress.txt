@@ -5,6 +5,62 @@ Entries are headed with a UTC ISO-8601 timestamp (YYYY-MM-DDThh:mm:ssZ, from
 Harness: https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents
 
 ────────────────────────────────────────────────────────────────────────
+2026-06-28T00:42:57Z — 030: Peek image at full brightness, faster show, synchronous dismiss
+
+WHAT WAS DONE. Three Peek (006) image-preview bugs, UI-only (peek.js + the Peek
+CSS block in stylesheet.css):
+
+(a) DARK IMAGE — root cause + fix. The dim/scrim was the overlay's OWN
+background-color (.strata-peek rgba(10,10,14,0.94)) with the image a mere
+descendant, AND the image view carried its own rgba(0,0,0,0.35) tint — so the
+full-resolution image rendered very dark. Fix: the dim/scrim is now its OWN actor
+(.strata-peek-dim), the BOTTOM child of the overlay; the text/image/loading views
+are LATER siblings ABOVE it (child order = paint order). The overlay is now a
+transparent container and the image view carries no dark tint. The image renders
+at full brightness with the dim strictly behind it.
+
+(b) SLOW SHOW (~2s). Verified by reproduction: the ~2s is the daemon
+GetItemContent full-image transfer (inherent — NOT UI-fixable; the fetch is the
+same D-Bus seam the shelf avoids). The decode itself is already off the shell
+thread (St CSS background-image loader). The UI win: open() now shows a
+lightweight loading state (.strata-peek-loading "Loading…") IMMEDIATELY instead of
+a dark blank during that fetch; it is swapped for the image the instant the bytes
+arrive.
+
+(c) SLOW DISMISS (~1s). peek.js close() already tears the overlay down
+synchronously (same-tick: visible=false, mapped=false, image style/file cleared;
+no timeouts/transitions in peek.js — measured). Reordered close() to hide the
+overlay FIRST, then release the full-res texture + temp file, so the visual
+dismiss never waits on texture teardown. The residual live ~1s, if any, is GL
+texture/compositor cost, not a peek.js deferral.
+
+HEADLESS LIMIT (noted): a CSS background-image (file://) does NOT render in the
+nested headless GL (a solid background-COLOR does), so pixel brightness of the
+image is not headless-assertable. Confirmed by experiment (solid red fills the
+view full-bright; a separate dim placed below renders the content full-bright on
+top). The test therefore asserts the USER-OBSERVABLE STRUCTURE: dim is the bottom
+child, the image actor is ABOVE the dim in child order, the image's effective
+(paint) opacity is full, the dark backdrop is ONLY on the dim (image actor and
+overlay carry no dark bg), the loading state shows during a gated fetch, and a
+REAL Escape unmaps the overlay synchronously.
+
+TDD RED->GREEN->TEETH. Wrote verify.sh case 030) first; RED for the right reasons
+(no dim actor, no loading actor, overlay+image carried dark bg, no loading during
+fetch). Implemented -> GREEN. Teeth #1 (primary): moved the dim to the TOP child
+(re-introducing the dark-over-image bug) -> the two z-order asserts went RED.
+Teeth #2: deferred the overlay hide by 1500ms in close() -> the "Escape unmaps
+synchronously" assert went RED (overlay still mapped after the settle) while
+isPeeking stayed synchronous. Restored both -> GREEN. Fixed an evnum pitfall: a
+-1 error sentinel misparses as 1 (the sign is stripped), so every assert returns 1
+only for the good state / 0 for missing-or-bad.
+
+`verify.sh all`: PASS 001 002 003 004 005 006 007 008 009 010 011 012 013 014 016
+017 018 020 021 023 024 025 026 028 030, FAIL: (none), ALL GREEN. 006 (Peek) stays
+green.
+
+VERIFY: ./test-harness/verify.sh 030
+
+────────────────────────────────────────────────────────────────────────
 2026-06-27T23:50:46Z — 028: Update default settings (visor-height 300, card-width 240, max-history 2000, move-activated-to-top true)
 
 WHAT WAS DONE. Changed three gschema <default> values in

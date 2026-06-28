@@ -630,7 +630,7 @@
         "v1-spec.md",
         "ADR-0007"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "031",

@@ -154,8 +154,15 @@
   color: rgba(255, 255, 255, 0.35);
 }
 
-/* Peek (006): the single enlarged Card. Overlays the whole visor on Space. */
+/* Peek (006): the single enlarged Card. Overlays the whole visor on Space.
+ * 030: the overlay itself is a transparent container; the dim/scrim lives on its
+ * own .strata-peek-dim actor that sits BELOW the content, so the full-resolution
+ * image renders at full brightness ABOVE it (never under the scrim). */
 .strata-peek {
+  background-color: transparent;
+}
+/* The dim/scrim backdrop — bottom child of the overlay, behind the content. */
+.strata-peek-dim {
   background-color: rgba(10, 10, 14, 0.94);
 }
 .strata-peek-panel {
@@ -169,10 +176,15 @@
   font-family: monospace;
   font-size: 15px;
 }
-/* The full-resolution image fills the panel, letter-boxed (contain). */
+/* The full-resolution image fills the overlay, letter-boxed (contain), at full
+ * brightness — NO dark tint of its own (the dim sits behind it). */
 .strata-peek-image {
-  background-color: rgba(0, 0, 0, 0.35);
   border-radius: 6px;
+}
+/* Lightweight loading state shown while the full content is fetched/decoded. */
+.strata-peek-loading {
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 16px;
 }
 
 /* ── Theme (008): class-toggle ──────────────────────────────────────────────

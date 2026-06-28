@@ -1509,6 +1509,84 @@ case "$ID" in
     chk "$(evnum "(function(){var c=$LU._shelf._cards.get('d280'); return c?Math.round(c.get_width()):-1;})()")" "240" "live card width is 240px (card-width default applied)"
     ;;
 
+  030)
+    LU="Main.extensionManager.lookup('$UUID').stateObj"
+    # --- Slice 030: the Peek IMAGE preview was too dark + slow to show/dismiss.
+    #     (a) The dark scrim was the overlay's OWN background-color (rgba 10,10,14,.94)
+    #         painted with the image as a mere descendant + the image view carried its
+    #         own rgba(0,0,0,.35) tint -> the full-res image rendered very dark. The fix
+    #         gives the dim/scrim its OWN actor (.strata-peek-dim) that sits BELOW the
+    #         image in child/z-order, so the image paints at FULL brightness on top.
+    #     (b) Space showed a dark BLANK during the ~2s GetItemContent fetch. The fix
+    #         shows a lightweight loading state immediately instead.
+    #     (c) Escape must tear the overlay down synchronously.
+    #
+    #     NB: headless GL does NOT render a CSS background-image (a solid background
+    #     -COLOR paints fine, a file:// background-image does not), so we cannot assert
+    #     pixel brightness here. We assert the USER-OBSERVABLE STRUCTURE that makes the
+    #     image bright: the dim is a separate actor BELOW the image in child order, the
+    #     image actor's effective opacity is full, and neither the image actor nor the
+    #     overlay carries a dark background of its own (only the dim, which is behind).
+
+    # --- static: the dim + loading actors exist; the scrim moved off the overlay ---
+    chk "$(grep -rqs 'strata-peek-dim' "$EXT/ui/peek.js" && echo y || echo n)" "y" "Peek builds a dedicated dim/scrim actor (strata-peek-dim)"
+    chk "$(grep -rqs 'strata-peek-dim' "$EXT/stylesheet.css" && echo y || echo n)" "y" "the dim/scrim background lives on .strata-peek-dim (not the overlay)"
+    chk "$(grep -rqs 'strata-peek-loading' "$EXT/ui/peek.js" && echo y || echo n)" "y" "Peek builds a loading-state actor (strata-peek-loading)"
+
+    # --- runtime: stub the shelf seams; image fetch is GATED so we can see the
+    #     loading state BEFORE the bytes arrive (the ~2s window) ---
+    nested_eval "(function(){
+      var e=$LU, sh=e._shelf;
+      globalThis._bM=[ {id:'img', mime_type:'image/png', content_text:null, created_at:3, has_thumbnail:true} ];
+      sh._fetchPage=function(o,l){ return Promise.resolve(_bM.slice(o,o+l)); };
+      sh._fetchThumbnail=function(id){ return Promise.resolve(new Uint8Array([137,80,78,71])); };
+      globalThis._gate=null;
+      sh._fetchContent=function(id){ return new Promise(function(res){ globalThis._gate=function(){ res(['image/png', new Uint8Array([137,80,78,71,13,10,26,10,0,0,0,13])]); }; }); };
+      e._showVisor(); return 1;
+    })()" >/dev/null 2>&1
+    sleep 0.7
+
+    # Open the image Peek; the fetch is still pending (mimics the ~2s daemon transfer).
+    nested_eval "(function(){ $LU._shelf.peek($LU._shelf._cards.get('img')); return 1; })()" >/dev/null 2>&1
+    sleep 0.4
+
+    # (b) PROMPT: overlay is up immediately with a LOADING state, NOT a dark blank.
+    #     NB: every assert below returns 1 ONLY for the good state, 0 for missing/bad
+    #     (no negative sentinel: evnum strips the sign, so -1 would misparse as 1).
+    chk "$(evnum "(function(){return $LU._shelf.isPeeking()?1:0;})()")" "1" "Space opens the Peek immediately (before the image bytes arrive)"
+    chk "$(evnum "(function(){var p=$LU._shelf._peek; return (p&&p._loading&&p._loading.visible)?1:0;})()")" "1" "a lightweight loading state shows during the fetch (not a dark blank)"
+    chk "$(evnum "(function(){var p=$LU._shelf._peek; return (p&&p._loading&&p._imageView&&!p._imageView.visible)?1:0;})()")" "1" "the (empty) image view is hidden while the loading state shows"
+
+    # Release the gated fetch -> the full-res image is shown.
+    nested_eval "(function(){ if(globalThis._gate) globalThis._gate(); return 1; })()" >/dev/null 2>&1
+    sleep 0.5
+    chk "$(evnum "(function(){return ($LU._shelf._peek._rendered.kind==='image')?1:0;})()")" "1" "once bytes arrive the image Peek renders the full-resolution image"
+    chk "$(evnum "(function(){var p=$LU._shelf._peek; return (p&&p._loading&&!p._loading.visible)?1:0;})()")" "1" "the loading state hides once the image is shown"
+    chk "$(evnum "(function(){return ((($LU._shelf._peek._imageView.style)||'').indexOf('background-image')>=0)?1:0;})()")" "1" "the decoded image blob is applied to the Peek image view"
+
+    # (a) BRIGHTNESS / Z-ORDER (the primary teeth): the dim is a SEPARATE actor that
+    #     sits BELOW the image in child order, the image is at full opacity, and the
+    #     dark backdrop is ONLY on the dim (not on the image actor or the overlay).
+    chk "$(evnum "(function(){var p=$LU._shelf._peek; if(!p||!p._dim||!p._overlay) return 0; var k=p._overlay.get_children(); return (k.indexOf(p._dim)===0)?1:0;})()")" "1" "the dim/scrim is the BOTTOM child of the Peek overlay"
+    chk "$(evnum "(function(){var p=$LU._shelf._peek; if(!p||!p._dim||!p._imageView||!p._overlay) return 0; var k=p._overlay.get_children(); return (k.indexOf(p._imageView)>k.indexOf(p._dim)&&k.indexOf(p._dim)>=0)?1:0;})()")" "1" "the image actor is ABOVE the dim/scrim in child order (image not covered by the scrim)"
+    chk "$(evnum "(function(){var p=$LU._shelf._peek; return (p&&p._imageView&&p._imageView.get_paint_opacity()===255)?1:0;})()")" "1" "the image actor's effective (paint) opacity is full"
+    chk "$(evnum "(function(){var p=$LU._shelf._peek; if(!p||!p._dim) return 0; try{return (p._dim.get_theme_node().get_background_color().alpha>200)?1:0;}catch(e){return 0;}})()")" "1" "the dim actor carries the dark backdrop (it is the scrim, and it is behind)"
+    chk "$(evnum "(function(){var p=$LU._shelf._peek; if(!p||!p._imageView) return 0; try{return (p._imageView.get_theme_node().get_background_color().alpha<30)?1:0;}catch(e){return 0;}})()")" "1" "the image actor has NO dark background of its own (not darkened)"
+    chk "$(evnum "(function(){var p=$LU._shelf._peek; if(!p||!p._overlay) return 0; try{return (p._overlay.get_theme_node().get_background_color().alpha<30)?1:0;}catch(e){return 0;}})()")" "1" "the overlay carries NO dark background of its own (scrim moved to the dim)"
+
+    # (c) DISMISS: a REAL Escape tears the overlay down SYNCHRONOUSLY (catches the ~1s
+    #     lag). After the keystroke the Peek is gone and the overlay is not mapped.
+    nested_key Escape
+    sleep 0.3
+    chk "$(evnum "(function(){return $LU._shelf.isPeeking()?1:0;})()")" "0" "a real Escape dismisses the Peek"
+    chk "$(evnum "(function(){return $LU._shelf._peek._overlay.mapped?1:0;})()")" "0" "Escape unmaps the Peek overlay synchronously (no lingering overlay)"
+    chk "$(evnum "(function(){return $LU._visorVisible?1:0;})()")" "1" "Escape closes only the Peek; the visor stays open"
+
+    # leave an image Peek up for the screenshot
+    nested_eval "(function(){ $LU._shelf.peek($LU._shelf._cards.get('img')); if(globalThis._gate) globalThis._gate(); return 1; })()" >/dev/null 2>&1
+    sleep 0.4
+    ;;
+
   *) echo "  note: no feature-specific checks for $ID (generic only)";;
 esac
 
