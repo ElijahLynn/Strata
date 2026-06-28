@@ -1937,6 +1937,96 @@ case "$ID" in
     sleep 0.3
     ;;
 
+  034)
+    LU="Main.extensionManager.lookup('$UUID').stateObj"
+    # --- Slice 034: 033 added peek.prefetch(card) (decode+cache a card's full-res image
+    #     in the background) but it was NOT auto-wired, so the FIRST peek of a focused
+    #     image still paid the cold decode. This slice WIRES prefetch to CARD FOCUS in the
+    #     shelf (the single _focusCard path that focusFirstCard / moveFocus / focusShelf
+    #     all delegate to — the same path that adds .strata-card-focused) for IMAGE cards
+    #     only, DEBOUNCED so rapid Left/Right nav warms at most the card focus SETTLES on.
+    #
+    #     We assert the USER-OBSERVABLE behaviour: after focusing an image card and a brief
+    #     settle, the image is already in the Peek cache and pressing Space is a cache HIT
+    #     (NO new GetItemContent fetch, NO loading flash); a non-image card focus prefetches
+    #     NOTHING; and rapid focus across N image cards issues at most ONE fetch (the
+    #     debounce holds), not N. _fcN[id] counts fetches per id (proves hits + the debounce).
+
+    # --- static: the focus path wires prefetch to the Peek ---
+    chk "$(grep -qs 'prefetch' "$EXT/ui/shelf.js" && echo y || echo n)" "y" "shelf wires the focus path to the Peek prefetch (034)"
+
+    # --- runtime: a corpus where cards[0]=image (Part 1), cards[1]=text (Part 2),
+    #     cards[2..5]=four images (Part 3 rapid nav). Bytes are a REAL 2x2 RGBA PNG so the
+    #     in-process GdkPixbuf decode genuinely produces a cached content. _fcN[id] counts
+    #     GetItemContent fetches PER id; each part uses distinct ids, so the per-id counts
+    #     are clean WITHOUT resetting the map (resetting would mask the prefetch the visor's
+    #     auto-focus-first-card already did on open — feature 025). ---
+    nested_eval "(function(){
+      var e=$LU, sh=e._shelf;
+      globalThis._bM=[
+        {id:'imgFocus', mime_type:'image/png',  content_text:null,            created_at:106, has_thumbnail:true},
+        {id:'txtPlain', mime_type:'text/plain', content_text:'just text here', created_at:105, has_thumbnail:false},
+        {id:'rapidA',   mime_type:'image/png',  content_text:null,            created_at:104, has_thumbnail:true},
+        {id:'rapidB',   mime_type:'image/png',  content_text:null,            created_at:103, has_thumbnail:true},
+        {id:'rapidC',   mime_type:'image/png',  content_text:null,            created_at:102, has_thumbnail:true},
+        {id:'rapidD',   mime_type:'image/png',  content_text:null,            created_at:101, has_thumbnail:true}
+      ];
+      sh._fetchPage=function(o,l){ return Promise.resolve(_bM.slice(o,o+l)); };
+      sh._fetchThumbnail=function(id){ return Promise.resolve(new Uint8Array([137,80,78,71])); };
+      globalThis._PNG=new Uint8Array([137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,2,0,0,0,2,8,6,0,0,0,114,182,13,36,0,0,0,19,73,68,65,84,120,156,99,249,223,193,240,159,1,8,152,24,160,0,0,39,205,2,141,152,172,202,59,0,0,0,0,73,69,78,68,174,66,96,130]);
+      globalThis._fcN={};
+      sh._fetchContent=function(id){
+        _fcN[id]=(_fcN[id]||0)+1;
+        if (id==='txtPlain') return Promise.resolve(['text/plain', new TextEncoder().encode('just text here, the full thing')]);
+        return Promise.resolve(['image/png', globalThis._PNG]);
+      };
+      e._showVisor(); return 1;
+    })()" >/dev/null 2>&1
+    sleep 0.8
+
+    # PART 1 — focusing an IMAGE card warms the cache in the BACKGROUND (no Peek opened).
+    # focusFirstCard() is the visor's own card-first open path; it (and the auto-open focus
+    # before it) routes through _focusCard -> the new prefetch hook. After the settle the
+    # focused image is fetched+decoded into the Peek cache, with NO Peek shown.
+    nested_eval "(function(){ $LU._shelf.focusFirstCard(); return 1; })()" >/dev/null 2>&1
+    sleep 0.5
+    chk "$(evnum "(function(){return (globalThis._fcN['imgFocus']===1)?1:0;})()")" "1" "focusing an image card prefetches it in the background (one GetItemContent)"
+    chk "$(evnum "(function(){return $LU._shelf.isPeeking()?1:0;})()")" "0" "prefetch-on-focus does NOT open the Peek (background warm only)"
+    chk "$(evnum "(function(){return $LU._shelf._peek._imageCache.has('imgFocus')?1:0;})()")" "1" "the focused image's decoded content is in the Peek cache before Space"
+
+    # ...so pressing Space (peek) is a cache HIT: NO new fetch, NO loading flash, image shown.
+    nested_eval "(function(){ $LU._shelf.peek($LU._shelf._cards.get('imgFocus')); return 1; })()" >/dev/null 2>&1
+    sleep 0.3
+    chk "$(evnum "(function(){return (globalThis._fcN['imgFocus']===1)?1:0;})()")" "1" "the first peek of the focused image is a cache HIT — no extra GetItemContent (instant)"
+    chk "$(evnum "(function(){var p=$LU._shelf._peek; return (p&&p._loading&&!p._loading.visible)?1:0;})()")" "1" "no 'Loading…' flash on the first peek (the prefetch already decoded it)"
+    chk "$(evnum "(function(){var p=$LU._shelf._peek; return (p&&p._imageView&&(p._imageView.get_content() instanceof imports.gi.Clutter.Content))?1:0;})()")" "1" "the prefetched content is shown instantly on the first peek"
+    nested_eval "(function(){ $LU._shelf.closePeek(); return 1; })()" >/dev/null 2>&1
+    sleep 0.2
+
+    # PART 2 — focusing a NON-image card prefetches NOTHING (text/url/color/file are skipped).
+    # Focus is back on imgFocus (cards[0]) after closePeek; moveFocus(1) lands on txtPlain (cards[1]).
+    nested_eval "(function(){ $LU._shelf.moveFocus(1); return 1; })()" >/dev/null 2>&1
+    sleep 0.5
+    chk "$(evnum "(function(){return (typeof $LU._shelf._cards.get('txtPlain')!=='undefined' && $LU._shelf._cards.get('txtPlain').isImage)?1:0;})()")" "0" "(setup) the second card is a non-image (text) card"
+    chk "$(evnum "(function(){return (globalThis._fcN['txtPlain']||0);})()")" "0" "focusing a non-image card issues NO prefetch fetch"
+    chk "$(evnum "(function(){return $LU._shelf._peek._imageCache.has('txtPlain')?1:0;})()")" "0" "a non-image card is never put in the Peek image cache"
+
+    # PART 3 — RAPID Left/Right nav across FOUR image cards in one synchronous burst warms
+    # at most the card focus SETTLES on (debounce), NOT one fetch per passed card. Focus is
+    # on txtPlain (cards[1]); four moveFocus(1) land on rapidA,rapidB,rapidC,rapidD (cards[2..5]).
+    # All four run in ONE Eval so the GLib main loop never iterates between them — each focus
+    # change cancels the prior settle timer, so only rapidD's timer survives to fire.
+    nested_eval "(function(){ var sh=$LU._shelf; sh.moveFocus(1); sh.moveFocus(1); sh.moveFocus(1); sh.moveFocus(1); return 1; })()" >/dev/null 2>&1
+    sleep 0.5
+    chk "$(evnum "(function(){var n=globalThis._fcN; return ((n['rapidA']||0)+(n['rapidB']||0)+(n['rapidC']||0)+(n['rapidD']||0));})()")" "1" "rapid nav across 4 image cards issues exactly ONE prefetch (debounce holds — not 4)"
+    chk "$(evnum "(function(){return (globalThis._fcN['rapidD']===1)?1:0;})()")" "1" "the ONE prefetch is for the card focus SETTLED on (the last in the burst)"
+    chk "$(evnum "(function(){var n=globalThis._fcN; return ((n['rapidA']||0)+(n['rapidB']||0)+(n['rapidC']||0));})()")" "0" "the passed-over image cards are NOT fetched (no daemon spam on fast nav)"
+
+    # leave the focused-image Peek up (cache HIT → instant) for the screenshot
+    nested_eval "(function(){ $LU._shelf.peek($LU._shelf._cards.get('imgFocus')); return 1; })()" >/dev/null 2>&1
+    sleep 0.3
+    ;;
+
   *) echo "  note: no feature-specific checks for $ID (generic only)";;
 esac
 

@@ -22,6 +22,9 @@ const RENDER_BATCH = 20;          // cards inserted per idle tick (paced renderi
 const LOAD_MORE_THRESHOLD = 200;  // px from the end that triggers the next page
 const SEARCH_DEBOUNCE_MS = 150;   // collapse rapid keystrokes into one query
 const ADD_DEBOUNCE_MS = 50;       // coalesce a burst of ItemAdded into one render (009)
+const PREFETCH_SETTLE_MS = 120;   // wait for card focus to settle before warming the
+                                  // focused image (034) — rapid Left/Right nav cancels the
+                                  // pending timer, so only the card focus lands on is fetched
 
 export class Shelf {
     constructor(proxy, settings, opts = {}) {
@@ -67,6 +70,11 @@ export class Shelf {
         // Last card to hold keyboard focus (slice 032: Down from the search box
         // re-enters the shelf at the last-focused card, not always the first).
         this._lastFocusedId = null;
+
+        // Pending focus->prefetch timer (slice 034): when an image card settles under
+        // keyboard focus we warm its full-res image in the Peek's background cache so
+        // the FIRST Space is a cache hit. Debounced — cancelled on each focus change.
+        this._prefetchId = null;
 
         // Live-add state (feature 009): ItemAdded events queue here and flush as
         // one prepend batch after a short debounce, so a burst is one relayout.
@@ -145,6 +153,7 @@ export class Shelf {
     }
 
     _clear() {
+        this._cancelPrefetch();       // the focused card is about to be destroyed (034)
         this._cards.clear();
         this._cardBox?.destroy_all_children();
         this.renderStats.count = 0;
@@ -579,7 +588,32 @@ export class Shelf {
         this._lastFocusedId = card.strataId;
         global.stage.set_key_focus(card);
         this._ensureCardVisible(card);
+        this._schedulePrefetch(card); // 034: warm the focused image ahead of Space
         return true;
+    }
+
+    /** Warm the focused card's full-res image in the Peek's background cache so the
+     *  FIRST Space is a cache hit, not a cold decode (slice 034). IMAGE cards only —
+     *  text/url/color/file have nothing to pre-decode. Debounced: each focus change
+     *  cancels the prior timer and arms a new one, so rapid Left/Right nav warms at
+     *  most the card focus finally SETTLES on (no daemon fetch per passed card). 033's
+     *  prefetch() is itself idempotent (its _inflight + bounded _imageCache dedupe), so
+     *  the timer is belt-and-braces; the settle delay is what stops the fetch-per-card. */
+    _schedulePrefetch(card) {
+        this._cancelPrefetch(); // focus moved — drop any warm armed for the prior card
+        if (!card?.isImage) return; // only image cards carry a full-res blob to pre-decode
+        this._prefetchId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, PREFETCH_SETTLE_MS, () => {
+            this._prefetchId = null;
+            this._peek?.prefetch(card);
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    _cancelPrefetch() {
+        if (this._prefetchId) {
+            GLib.Source.remove(this._prefetchId);
+            this._prefetchId = null;
+        }
     }
 
     /** Re-enter the shelf from the search box (slice 032: Down, the inverse of 023's
@@ -682,6 +716,7 @@ export class Shelf {
             GLib.Source.remove(this._addDebounceId);
             this._addDebounceId = null;
         }
+        this._cancelPrefetch();        // drop any pending focus->prefetch timer (034)
         if (this._adjIds && this._adj) {
             for (const id of this._adjIds) { if (id) this._adj.disconnect(id); }
         }

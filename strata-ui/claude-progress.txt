@@ -5,6 +5,57 @@ Entries are headed with a UTC ISO-8601 timestamp (YYYY-MM-DDThh:mm:ssZ, from
 Harness: https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents
 
 ────────────────────────────────────────────────────────────────────────
+2026-06-28T03:36:02Z — 034: Wire Peek prefetch to CARD FOCUS so the FIRST peek is instant too (TDD red→green→teeth)
+
+THE GAP (post-033): slice 033 added peek.prefetch(card) — it fetches + decodes a
+card's full-res image into the in-process cache in the background — but it was NOT
+auto-wired (033 was told not to touch shelf.js). So the cache only made RE-peeks
+instant; the FIRST peek of a focused image still paid the cold decode (and the cold
+glycin sandbox the very first time on this box).
+
+THE FIX (UI-only, shelf.js + peek.js; daemon untouched, ADR-0003):
+  - shelf.js: _focusCard(card) — the SINGLE focus primitive that focusFirstCard /
+    moveFocus / focusShelf / deleteFocused (and the visor's auto-focus-first-card on
+    open, feature 025) all delegate to, the same path that adds .strata-card-focused —
+    now calls _schedulePrefetch(card). That warms the focused image in the Peek's
+    background cache so Space is a cache HIT.
+  - DEBOUNCE: _schedulePrefetch arms a GLib.timeout (PREFETCH_SETTLE_MS = 120ms);
+    every focus change first _cancelPrefetch()s the prior timer, so rapid Left/Right
+    nav warms at MOST the card focus finally SETTLES on — not one GetItemContent per
+    passed card (no daemon spam). IMAGE cards only (card.isImage gate); text/url/color/
+    file arm nothing. The timer is also cancelled in _clear() (the focused card is
+    about to be destroyed) and destroy().
+  - peek.js open(): when a focus-prefetch is still IN FLIGHT for the same id (card
+    focused, Space pressed before the background warm finished), open() now RIDES that
+    same fetch (awaits the _inflight promise, then shows the now-cached content) instead
+    of issuing a SECOND GetItemContent. Factored the fetch into _fetchAndShow(); the
+    ride-fallback re-fetches only if the prefetch produced nothing. This is what keeps
+    033 green (its gated img1 → prefetch + peek now = ONE fetch, as 033 asserts) AND it
+    is a genuine win: no double round-trip in the prefetch/Space race window.
+
+NET EFFECT: focus an image card, let it settle (~120ms), press Space → instant cache
+HIT, no "Loading…" flash, no decode wait. The common case (you look at a card, then
+peek it) is now warm before the keypress.
+
+TEST (verify.sh 034, teeth-proven):
+  - focusFirstCard() on an image card → after a settle, _fcN['imgFocus']===1 (background
+    prefetch) AND _peek._imageCache.has('imgFocus') BEFORE Space; isPeeking()===0 (warm
+    only). Then peek → cache HIT (_fcN stays 1), loading NOT visible, content present.
+  - a NON-image (text) card focus → NO prefetch fetch, never enters the image cache.
+  - RAPID nav: four moveFocus(1) across four image cards in ONE Eval (the main loop never
+    iterates between them) → exactly ONE prefetch total, for the SETTLED card (rapidD);
+    the three passed-over cards are NOT fetched (debounce holds).
+  - TEETH: removing this._schedulePrefetch(card) from _focusCard turned the background-
+    prefetch / cache-holds-id-before-Space / rapid-single-fetch / settled-card asserts
+    RED; restored → green.
+  - HEADLESS-ASSERTABLE: cache-HIT (no extra GetItemContent), the debounce fetch count,
+    the non-image skip. ONLY-LIVE-VERIFIABLE: the wall-clock "instant" feel of the first
+    peek (the cache HIT is the headless proxy for it).
+
+VERIFY: cd strata-ui && timeout 200 ./test-harness/verify.sh 034   (and `all` → ALL GREEN,
+001-034 incl. 006/030/033). 034 passes:true.
+
+────────────────────────────────────────────────────────────────────────
 2026-06-28T03:11:08Z — 033: Peek image decodes IN-PROCESS (no temp-file / no CSS background image / no St.TextureCache file-load) → cached + prefetchable, fast Escape (TDD red→green→teeth)
 
 THE BUG (live, post-030): Space on an image card showed a BLACK "Loading…" for ~2s,

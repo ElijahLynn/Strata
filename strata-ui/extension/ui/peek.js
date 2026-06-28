@@ -205,6 +205,28 @@ export class Peek {
         // the full content is fetched + decoded (030).
         this._setView('loading');
 
+        // A focus-driven prefetch for this id may still be IN FLIGHT (034: the card was
+        // focused and Space pressed before the background warm finished). Ride that same
+        // fetch rather than issuing a SECOND GetItemContent — when it resolves the decoded
+        // image is in the cache. Fall back to a fresh fetch only if the prefetch produced
+        // nothing (decode failure / not actually an image).
+        const inflight = this._inflight.get(id);
+        if (inflight) {
+            inflight.then(() => {
+                if (epoch !== this._epoch || !this._overlay) return; // superseded / closed
+                const c = this._imageCache.get(id);
+                if (c) this._applyImageContent(id, mime || 'image/png', c);
+                else this._fetchAndShow(id, mime, epoch);
+            }).catch(e => console.error('[Strata UI] Peek failed:', e));
+            return;
+        }
+
+        this._fetchAndShow(id, mime, epoch);
+    }
+
+    /** Fetch an item's full content and render it (image or text). Factored out so a
+     *  cold open and the ride-the-in-flight-prefetch fallback share one path. */
+    _fetchAndShow(id, mime, epoch) {
         Promise.resolve(this._fetchContent ? this._fetchContent(id) : null)
             .then(res => {
                 if (epoch !== this._epoch || !this._overlay) return; // superseded / closed
