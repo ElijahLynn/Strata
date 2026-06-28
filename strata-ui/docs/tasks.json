@@ -698,6 +698,27 @@
         "ADR-0003"
       ],
       "passes": true
+    },
+    {
+      "id": "034",
+      "title": "Wire Peek prefetch to card focus so the FIRST peek is instant too",
+      "category": "bugfix",
+      "description": "Slice 033 added peek.prefetch(card) — it decodes + caches the focused card's full-res image in the background — but it is NOT auto-wired (the 033 agent was told not to touch shelf.js). Without the hook the cache only makes RE-peeks instant; the FIRST peek of a focused image still pays the decode (and on this Arch box, the cold glycin sandbox the very first time). Wire prefetch to card focus: when a card gains keyboard focus in the shelf, call this._peek?.prefetch(card) for IMAGE cards so the full-res image is decoded + cached in the BACKGROUND before the user presses Space -> the first peek is a cache hit and shows instantly with no loading flash. Guard against rapid Left/Right nav fetching every passed card (debounce until focus settles, and/or rely on 033's _inflight dedupe + bounded cache). Both shelf.js and peek.js are UI (ADR-0003 allows this; do NOT touch the daemon).",
+      "steps": [
+        "On card focus in the shelf (the same key-focus-in / focus path that adds .strata-card-focused), call this._peek?.prefetch(card) for IMAGE cards only (skip text/url/color/file cards)",
+        "Rapid Left/Right nav does NOT issue a fetch per passed card — debounce until focus settles (e.g. a short GLib timeout cancelled on the next focus change) and/or rely on 033's _inflight dedupe + cache cap; no daemon spam",
+        "After focusing an image card and a brief settle, Space shows the image INSTANTLY (cache HIT, no 'Loading...' flash, no decode wait)",
+        "TEST: focus an image card, let prefetch run, assert the peek image cache holds that id OR the subsequent peek is a cache HIT with NO new GetItemContent fetch; assert a non-image card is NOT prefetched; assert rapid focus changes across N cards do not produce N fetches (debounce works); teeth-proven (remove the hook -> first peek is a MISS / fetch fires -> RED)"
+      ],
+      "blockedBy": [
+        "030",
+        "033"
+      ],
+      "refs": [
+        "v1-spec.md",
+        "ADR-0007"
+      ],
+      "passes": false
     }
   ]
 }
