@@ -653,6 +653,27 @@
         "ADR-0004"
       ],
       "passes": false
+    },
+    {
+      "id": "032",
+      "title": "Down from the search box returns focus to the shelf (re-enter the cards)",
+      "category": "functional",
+      "description": "Live (user): after pressing Up to go from a card back to the search box (slice 023), there is no keyboard way to get BACK into the shelf except retyping or arrowing — Down does nothing. Add the inverse of 023's Up: when focus is in the search box, Down moves focus back into the shelf (to the first card, or ideally the previously-focused card), so Up/Down toggle between the search box and the shelf. Right from the search box already enters the shelf (slice 011 moveFocus idx<0 -> cards[0]); Down should re-enter the same way. Compose with 031 (Left no longer escapes to search): Up and Down become the dedicated search<->shelf toggle.",
+      "steps": [
+        "With focus in the search box and a non-empty shelf, Down moves focus into the shelf (first card, or the last-focused card if tracked) and highlights it with .strata-card-focused",
+        "Up (from a card, per 023) and Down (from the search box) form a consistent toggle between the search box and the shelf",
+        "Empty shelf: Down in the search box is a no-op (nothing to focus); typing still filters",
+        "TEST: focus the search box, press Down, assert a card holds key focus AND carries .strata-card-focused; press Up, assert focus returns to the search box; teeth-proven"
+      ],
+      "blockedBy": [
+        "011",
+        "023"
+      ],
+      "refs": [
+        "v1-spec.md",
+        "ADR-0004"
+      ],
+      "passes": false
     }
   ]
 }
