@@ -674,6 +674,30 @@
         "ADR-0004"
       ],
       "passes": true
+    },
+    {
+      "id": "033",
+      "title": "Peek image instant + full-res (in-process decode, no glycin/temp-file); Escape dismiss immediate",
+      "category": "bugfix",
+      "description": "Live (post-030, user-confirmed): peeking an image shows a BLACK screen with 'Loading...' for ~2s before the image appears, and Escape to dismiss is still ~1s slow. The 030 agent misattributed the ~2s to the daemon D-Bus transfer; that is wrong — a local IPC blob transfer is milliseconds. The real cost is the UI DECODE path: peek.js writes the image bytes to a TEMP FILE and displays them via CSS background-image: url(\"file://...\") (peek.js ~line 247), which on GNOME invokes GLYCIN — a SANDBOXED image loader that spawns a bwrap subprocess per decode (confirmed: bwrap .../glycin-loaders/... processes observed in the live process list). Cold bwrap-sandbox spin-up + temp-file write ~= the 2s. The SAME heavy glycin-backed GL texture is also slow to tear down, which is the residual ~1s Escape (030 made peek.js close() synchronous but the lag is the texture/glycin teardown, not close()). FIX (UI-only, ADR-0003): decode the image bytes IN-PROCESS from the in-memory blob (GdkPixbuf.Pixbuf.new_from_stream over a Gio.MemoryInputStream -> Clutter/Cogl texture or St image content) with NO temp file, NO file:// CSS, NO glycin sandbox; CACHE the decoded texture per id and PRE-FETCH the focused card's full image in the background so Peek is INSTANT and FULL-RES every time; release textures on dismiss/disable so Escape is immediate and memory stays bounded. DIAGNOSE FIRST and prove with numbers; reject 'inherent' unless measurement shows the daemon GetItemContent return itself is slow (if so, that is a separate v2/daemon finding to record, not a reason to keep the glycin path).",
+      "steps": [
+        "DIAGNOSE with timing: instrument (a) GetItemContent return time, (b) the current temp-file + CSS background-image decode, (c) the new in-process decode + texture upload. Record before/after numbers showing where the ~2s actually goes (expectation: (a) is milliseconds, (b)/glycin is the bulk).",
+        "Decode the image bytes IN-PROCESS (e.g. GdkPixbuf from a Gio.MemoryInputStream -> Clutter/Cogl texture or St image content). NO temp file, NO file:// background-image, NO glycin sandbox in the Peek path.",
+        "Peek on an image is effectively INSTANT (well under ~150ms once the bytes are in hand) and renders at FULL resolution and FULL brightness (verify the loaded image is bright live, not just the loading state).",
+        "Cache the decoded texture per id and pre-fetch the focused card's full-res image in the background so the common peek (the focused card) is instant; release textures on dismiss/disable to bound memory.",
+        "Escape (and Space) dismiss the Peek IMMEDIATELY (no perceptible lag) by releasing the in-process texture cheaply — no glycin/sandbox teardown.",
+        "TEST: assert the Peek image path uses NO temp file and NO file:// url (the image actor is backed by in-process texture/content, not a CSS background-image url); assert a decoded image content/texture is present after a gated fetch; assert Escape unmaps synchronously; keep 030's brightness + z-order asserts GREEN; teeth-proven. Note clearly which parts are headless-assertable (no-temp-file, content-backed, synchronous unmap, no glycin) vs only live-verifiable (wall-clock instant-ness)."
+      ],
+      "blockedBy": [
+        "006",
+        "030"
+      ],
+      "refs": [
+        "v1-spec.md",
+        "ADR-0007",
+        "ADR-0003"
+      ],
+      "passes": false
     }
   ]
 }
