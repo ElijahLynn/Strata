@@ -64,6 +64,10 @@ export class Shelf {
         this._picking = false;   // de-dupes a pick (click + key, or doubled events)
         this._lastWrite = null;  // last clipboard write {mime, binary, text?} (observable)
 
+        // Last card to hold keyboard focus (slice 032: Down from the search box
+        // re-enters the shelf at the last-focused card, not always the first).
+        this._lastFocusedId = null;
+
         // Live-add state (feature 009): ItemAdded events queue here and flush as
         // one prepend batch after a short debounce, so a burst is one relayout.
         this._pendingAdds = [];
@@ -144,6 +148,7 @@ export class Shelf {
         this._cards.clear();
         this._cardBox?.destroy_all_children();
         this.renderStats.count = 0;
+        this._lastFocusedId = null;   // the tracked card no longer exists (032)
     }
 
     /** Apply a new card-width live (feature 008 prefs): resize every existing
@@ -561,33 +566,54 @@ export class Shelf {
     focusFirstCard() {
         const first = this._cardBox?.get_first_child();
         if (!first) return false;
-        global.stage.set_key_focus(first);
-        this._ensureCardVisible(first);
+        return this._focusCard(first);
+    }
+
+    /** Give one card keyboard focus, scroll it into view, and remember it as the
+     *  last-focused card (slice 032: Down re-enters at the last-focused card). The
+     *  per-card key-focus-in adds .strata-card-focused exactly as during nav. The
+     *  single place card focus is set, so the last-focused id can never drift out of
+     *  sync. Returns true (false only for a null card). */
+    _focusCard(card) {
+        if (!card) return false;
+        this._lastFocusedId = card.strataId;
+        global.stage.set_key_focus(card);
+        this._ensureCardVisible(card);
         return true;
     }
 
+    /** Re-enter the shelf from the search box (slice 032: Down, the inverse of 023's
+     *  Up): focus the last-focused card if it still exists, else the first card.
+     *  Returns false on an empty shelf, so Down there is a no-op. */
+    focusShelf() {
+        const cards = this._cardBox ? this._cardBox.get_children() : [];
+        if (!cards.length) return false;
+        let target = this._lastFocusedId ? this._cards.get(this._lastFocusedId) : null;
+        if (!target || target.get_parent() !== this._cardBox) target = cards[0];
+        return this._focusCard(target);
+    }
+
     /** Move key focus between cards (Left/Right), scrolling the target into view.
-     *  Returns true if a card now holds focus, false if the move stepped off the
-     *  shelf (left of the first card, or there are no cards) — the caller hands
-     *  focus back to the search box in that case. */
+     *  Navigation is WITHIN the shelf only (slice 031): Right past the last card and
+     *  Left at the first card are both clamped no-ops — the caller no longer hands
+     *  focus to the search box on a left-boundary step. Returns true if a card holds
+     *  focus, false if there was nothing to move to (empty shelf, Left/Right from the
+     *  search box that can't enter, or a boundary no-op). The ONLY routes from a card
+     *  to the search box are Up / typing (023); Down re-enters (032). */
     moveFocus(dir) {
         const cards = this._cardBox ? this._cardBox.get_children() : [];
         if (!cards.length) return false;
         const idx = cards.indexOf(global.stage.get_key_focus());
         if (idx < 0) {
-            // Focus is in the search box (or nowhere). Right enters the shelf at
-            // the first card; Left has nowhere to go, so stay in search.
+            // Focus is in the search box (or nowhere). Right enters the shelf at the
+            // first card; Left has nowhere to go (the caller keeps focus put — 031).
             if (dir < 0) return false;
-            global.stage.set_key_focus(cards[0]);
-            this._ensureCardVisible(cards[0]);
-            return true;
+            return this._focusCard(cards[0]);
         }
         const next = idx + dir;
-        if (next < 0) return false;   // stepping left off the first card → search
-        const card = cards[Math.min(cards.length - 1, next)];
-        global.stage.set_key_focus(card);
-        this._ensureCardVisible(card);
-        return true;
+        if (next < 0) return false;   // Left at the first card: boundary no-op (031 —
+                                      // the caller no longer escapes to the search box).
+        return this._focusCard(cards[Math.min(cards.length - 1, next)]);
     }
 
     /** Delete the focused card's item from history (feature 020). Resolves the
@@ -612,10 +638,7 @@ export class Shelf {
         // drop in extension.js.
         this._proxy?.DeleteItemAsync?.(id)?.catch?.(e =>
             console.error('[Strata UI] DeleteItem failed:', e));
-        if (next) {
-            global.stage.set_key_focus(next);
-            this._ensureCardVisible(next);
-        }
+        if (next) this._focusCard(next);
         return true;
     }
 

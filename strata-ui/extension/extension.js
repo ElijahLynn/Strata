@@ -18,6 +18,14 @@ import * as MessageTray from 'resource:///org/gnome/shell/ui/messageTray.js';
 import {StrataProxy, BUS_NAME, OBJECT_PATH} from './dbus.js';
 import {Shelf} from './ui/shelf.js';
 
+// How long after open the first-card focus guard keeps re-asserting against the
+// asynchronous Main.pushModal focus-settle (slice 029). Long enough to outlast
+// the deferred settle passes that null/clobber the card focus we set on open,
+// short enough to be gone well before any user interaction — and the visor's own
+// Up / typing handlers ALSO disarm it the instant the user deliberately moves to
+// the search box, so a long window can never fight real input.
+const FOCUS_GUARD_MS = 500;
+
 export default class StrataUIExtension extends Extension {
     /** @type {Gio.Subprocess | null} */
     _daemon = null;
@@ -39,7 +47,8 @@ export default class StrataUIExtension extends Extension {
     _shelf = null;
     _visorVisible = false;
     _grab = null;
-    _focusGuardId = null;       // stage key-focus guard while the open-focus settles (025)
+    _focusGuardId = null;       // stage key-focus guard while the open-focus settles (025/029)
+    _focusGuardDeadlineId = null; // time-box backstop that disconnects the guard (029)
 
     /** Live-update state (feature 009). */
     _signalIds = null;          // daemon D-Bus signal subscription ids
@@ -200,10 +209,20 @@ export default class StrataUIExtension extends Extension {
                 return Clutter.EVENT_STOP;
             }
             if (sym === Clutter.KEY_Left) {
-                // moveFocus returns false when stepping left off the first card →
-                // hand focus back to the search box.
-                if (!shelf?.moveFocus(-1) && searchText)
-                    global.stage.set_key_focus(searchText);
+                // Left navigates WITHIN the shelf only (slice 031): at the left
+                // boundary (the first card) moveFocus(-1) is a no-op and we do NOT
+                // hand focus to the search box. Up / typing (023) are the ONLY
+                // routes from a card to the search box; Down re-enters (032).
+                shelf?.moveFocus(-1);
+                return Clutter.EVENT_STOP;
+            }
+            // Down re-enters the shelf from the search box (slice 032) — the inverse
+            // of Up (023); together Up/Down toggle between the search box and the
+            // shelf. Only act when no card already holds focus (focus is in the
+            // search box / nowhere); an empty shelf is a no-op (focusShelf returns
+            // false and nothing moves). With a card focused, Down is left alone.
+            if (sym === Clutter.KEY_Down && !shelf?.hasFocusedCard()) {
+                shelf?.focusShelf();
                 return Clutter.EVENT_STOP;
             }
             // Type-on-card → search (feature 023). A Card is an St.Button: it takes
@@ -218,6 +237,10 @@ export default class StrataUIExtension extends Extension {
             // ClutterText handles typing/Up itself, so we propagate untouched.
             if (searchText && shelf?.hasFocusedCard()) {
                 if (sym === Clutter.KEY_Up) {
+                    // A DELIBERATE move to the search box: disarm the open-focus
+                    // guard FIRST (before set_key_focus emits notify::key-focus) so
+                    // the guard doesn't yank focus straight back to the card (029).
+                    this._teardownFocusGuard();
                     global.stage.set_key_focus(searchText);
                     return Clutter.EVENT_STOP;
                 }
@@ -309,6 +332,9 @@ export default class StrataUIExtension extends Extension {
         const entry = this._searchEntry;
         const ct = entry?.get_clutter_text();
         if (!ct) return;
+        // A DELIBERATE move to the search box (the user typed): disarm the open-focus
+        // guard FIRST so it doesn't snap focus back to the card a tick later (029).
+        this._teardownFocusGuard();
         global.stage.set_key_focus(ct);
         const text = entry.get_text() ?? '';
         entry.set_text(text + ch);
@@ -327,43 +353,60 @@ export default class StrataUIExtension extends Extension {
      *  card if any exist, else the search box. Fired by the shelf's onFirstPage
      *  callback once page 0 has rendered, so the first card actually exists.
      *
-     *  Sticky re-assert: on the FIRST open of the session, Main.pushModal settles
-     *  stage focus ASYNCHRONOUSLY a tick or two after we return — it grabs focus to
-     *  the visor, then drops it to null AFTER our callback runs, clobbering the card
-     *  focus we just set (observed: focus transitions visor -> card -> null). A
-     *  single set therefore loses the race. So we connect a one-shot guard to the
-     *  stage's key-focus: if the modal pulls focus to null/the visor while a card
-     *  open is intended and no card yet holds focus, re-assert. It disconnects as
-     *  soon as focus lands where intended (a card, or the search box) or after a
-     *  small bound, so it can never loop — and it is torn down on hide regardless. */
+     *  Sticky re-assert (slice 029): Main.pushModal settles stage focus
+     *  ASYNCHRONOUSLY a tick or more after we return — it grabs focus to the visor,
+     *  then drops it to null (or hands it to the search entry) AFTER our callback
+     *  runs, clobbering the card focus we just set (observed live: card highlights,
+     *  then DEhighlights as focus transitions card -> null). A single set loses the
+     *  race. The 025 guard re-asserted but was bounded by a small ATTEMPT count AND
+     *  disconnected on its FIRST recovery — so a LATER settle pass (which lands after
+     *  the attempts are spent / the guard is gone) was never re-asserted, which is why
+     *  it passed headless yet failed live. So we TIME-BOX the guard instead: for a
+     *  short window after open, ANY focus drift OFF the shelf (null, the visor, or the
+     *  search entry) is treated as the involuntary settle and the first card is
+     *  re-focused — without disconnecting on success, so repeated settle passes are all
+     *  caught. A DELIBERATE move to the search box (Up / typing, 023) disarms the guard
+     *  FIRST (see the Up handler and _typeIntoSearch), so real input is never fought.
+     *  The window (a backstop timeout) and hide both disconnect it, so it can neither
+     *  linger nor loop. */
     _focusInitialTarget() {
         if (!this._visorVisible) return;
         this._teardownFocusGuard();
         const wantCard = (this._shelf?.cardCount() ?? 0) > 0;
         if (!wantCard) { this._focusSearch(); return; }
         this._shelf?.focusFirstCard();
-        // Watch for the modal's late focus-settle stealing our card focus, and
-        // re-assert a bounded number of times. The search-box fallback doesn't need
-        // this (an St.Entry's ClutterText keeps the modal's focus), so only guard
-        // the card case.
-        let attempts = 0;
+        const deadlineUs = GLib.get_monotonic_time() + FOCUS_GUARD_MS * 1000;
         this._focusGuardId = global.stage.connect('notify::key-focus', () => {
             if (!this._visorVisible) { this._teardownFocusGuard(); return; }
-            const focus = global.stage.get_key_focus();
-            // Landed on a card (ours or one the user navigated to) → done.
-            if (this._shelf?.hasFocusedCard()) { this._teardownFocusGuard(); return; }
-            // Focus moved to the search box (user typed/Up, per 023) → leave it.
-            if (focus === this._searchEntry?.get_clutter_text()) { this._teardownFocusGuard(); return; }
-            // Else the modal pulled focus to null/the visor — re-assert, bounded.
-            if (++attempts > 5) { this._teardownFocusGuard(); return; }
+            // A card already holds focus (ours, or one the user navigated to) → leave
+            // it, but STAY ARMED: a later settle pass may still null it.
+            if (this._shelf?.hasFocusedCard()) return;
+            // Window elapsed → stop guarding; let focus rest wherever it landed.
+            if (GLib.get_monotonic_time() > deadlineUs) { this._teardownFocusGuard(); return; }
+            // The modal pulled focus off the shelf (null / the visor / the search
+            // entry) during the settle window → re-assert the first card. A
+            // deliberate move to search already disarmed us, so anything we see here
+            // is the involuntary drift.
             this._shelf?.focusFirstCard();
         });
+        // Backstop: disconnect once the window passes even if no further key-focus
+        // notifications arrive (focus settled quietly on the card and went silent).
+        this._focusGuardDeadlineId = GLib.timeout_add(
+            GLib.PRIORITY_DEFAULT, FOCUS_GUARD_MS + 50, () => {
+                this._focusGuardDeadlineId = null;
+                this._teardownFocusGuard();
+                return GLib.SOURCE_REMOVE;
+            });
     }
 
     _teardownFocusGuard() {
         if (this._focusGuardId) {
             global.stage.disconnect(this._focusGuardId);
             this._focusGuardId = null;
+        }
+        if (this._focusGuardDeadlineId) {
+            GLib.Source.remove(this._focusGuardDeadlineId);
+            this._focusGuardDeadlineId = null;
         }
     }
 

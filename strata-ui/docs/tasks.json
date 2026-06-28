@@ -570,7 +570,7 @@
         "v1-spec.md",
         "ADR-0004"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "028",
@@ -610,7 +610,7 @@
         "v1-spec.md",
         "ADR-0004"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "030",
@@ -652,7 +652,7 @@
         "v1-spec.md",
         "ADR-0004"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "032",
@@ -673,7 +673,7 @@
         "v1-spec.md",
         "ADR-0004"
       ],
-      "passes": false
+      "passes": true
     }
   ]
 }

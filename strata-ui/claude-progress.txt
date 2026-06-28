@@ -5,6 +5,38 @@ Entries are headed with a UTC ISO-8601 timestamp (YYYY-MM-DDThh:mm:ssZ, from
 Harness: https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents
 
 ────────────────────────────────────────────────────────────────────────
+2026-06-28T00:52:59Z — 029/031/032/027: nav-model pass — focus sticks on open, Left stays in shelf, Down re-enters, no skip (TDD red→green→teeth)
+
+029 (first-card focus STICKS on open). The 025 guard re-asserted first-card focus against
+Main.pushModal's ASYNC focus-settle but was bounded by a small ATTEMPT count, so once the
+attempts were spent the late settle (card -> null/search) won the race — passed HEADLESS,
+failed LIVE (the card highlighted then DEhighlighted). Replaced it with a TIME-BOXED guard
+(FOCUS_GUARD_MS = 500): for 500ms after open, ANY focus drift OFF the shelf (null, the visor,
+or the search entry) is treated as the involuntary settle and the first card is re-focused —
+WITHOUT disconnecting on success, so every settle pass is caught; a deadline backstop
+(_focusGuardDeadlineId) disconnects the guard when the window closes. A DELIBERATE move to
+search (Up / typing, 023) disarms the guard FIRST (before set_key_focus emits
+notify::key-focus) so real input is never fought.
+
+031 (Left stays in the shelf). moveFocus(-1) at the left boundary (the first card) is now a
+no-op; the key handler no longer hands focus to the search box on Left-off-the-first-card.
+Up and typing (023) are the ONLY routes from a card to the search box.
+
+032 (Down re-enters the shelf). Down in the search box (when no card holds focus) calls the
+new shelf.focusShelf() to focus the first card — the inverse of 023's Up; Up/Down now toggle
+between the search box and the shelf. Empty shelf -> no-op; with a card focused Down is left alone.
+
+027 (no skip — CLOSED). With focus sticking (029) and Left no longer escaping (031), entering
+the shelf lands on the TRUE first card and arrow nav never skips. The 027 case reproduces the
+original varying-skip scenario and passes.
+
+TESTS. New verify cases 029/031/032/027; updated the 004/011/023/025 assertions that expected
+"Left from the first card -> search" to the new contract (Left keeps the first card focused)
+without dropping their other coverage. TEETH re-confirmed on 029 by the parent after the build
+agent was interrupted: zeroing FOCUS_GUARD_MS turns the four 029 focus asserts + the no-skip
+Right RED; restored -> GREEN. verify.sh all -> ALL GREEN (001-032; 015/019/022 have no case).
+
+────────────────────────────────────────────────────────────────────────
 2026-06-28T00:42:57Z — 030: Peek image at full brightness, faster show, synchronous dismiss
 
 WHAT WAS DONE. Three Peek (006) image-preview bugs, UI-only (peek.js + the Peek

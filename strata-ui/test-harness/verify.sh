@@ -678,13 +678,16 @@ case "$ID" in
     })()")" "1" "the navigated-to card is scrolled into view (allocation inside the viewport)"
     chk "$(evnum "(function(){return $LU._shelf._scroll.get_hadjustment().value>0?1:0;})()")" "1" "navigating right actually scrolled the shelf (hadjustment moved off 0)"
 
-    # Left walks back: park focus on the first card, then a REAL Left keystroke steps
-    # off the front and the capture handler (moveFocus(-1)===false) hands focus back to
-    # the search box. Drives the real capture path with a real key, not an internal call.
+    # Left at the LEFT BOUNDARY is a NO-OP (slice 031, supersedes the old 011 "Left off
+    # the first card returns to search"): park focus on the first card, then a REAL Left
+    # keystroke must KEEP focus on the first card and must NOT jump to the search box.
+    # Up / typing (023) are the only routes from a card to search. Drives the real
+    # capture path with a real key, not an internal call.
     nested_eval "(function(){global.stage.set_key_focus($LU._shelf._cardBox.get_first_child()); return 1;})()" >/dev/null 2>&1
     sleep 0.2
     nested_key Left; sleep 0.3
-    chk "$(focuseq "$LU._searchEntry.get_clutter_text()")" "1" "Left off the first card returns focus to search"
+    chk "$(focuseq "$LU._shelf._cardBox.get_first_child()")" "1" "Left at the first card stays on the first card (031 boundary no-op)"
+    chk "$(focuseq "$LU._searchEntry.get_clutter_text()")" "0" "Left at the first card does NOT return to the search box (031 supersedes 011)"
     ;;
 
   012)
@@ -1236,6 +1239,19 @@ case "$ID" in
     nested_key Right; sleep 0.3
     chk "$(focuseq "$LU._shelf._cardBox.get_children()[1]")" "1" "Right still moves between cards (011 not regressed)"
 
+    # --- NEW CONTRACT (031): Left at the first card stays put (no escape to search) ---
+    nested_eval "(function(){global.stage.set_key_focus($LU._shelf._cardBox.get_first_child()); return 1;})()" >/dev/null 2>&1
+    sleep 0.2
+    nested_key Left; sleep 0.3
+    chk "$(focuseq "$LU._shelf._cardBox.get_first_child()")" "1" "031: Left at the first card stays on the first card (no jump to search)"
+    chk "$(focuseq "$LU._searchEntry.get_clutter_text()")" "0" "031: Left at the first card does not focus the search box"
+
+    # --- NEW CONTRACT (032): Up/Down toggle between the search box and the shelf ---
+    nested_key Up; sleep 0.3
+    chk "$(focuseq "$LU._searchEntry.get_clutter_text()")" "1" "032: Up from the first card returns to the search box"
+    nested_key Down; sleep 0.3
+    chk "$(evnum "(function(){return $LU._shelf.hasFocusedCard()?1:0;})()")" "1" "032: Down from the search box re-enters the shelf"
+
     # --- REGRESSION (020): Delete on a focused card still deletes THAT card ---
     nested_eval "(function(){ globalThis._del=[]; global.stage.set_key_focus($LU._shelf._cardBox.get_children()[1]); return 1; })()" >/dev/null 2>&1
     sleep 0.2
@@ -1453,6 +1469,10 @@ case "$ID" in
     chk "$(focuseq "$LU._shelf._cardBox.get_children()[1]")" "1" "Right still navigates to the next card on open (011 not regressed)"
     nested_key Left; sleep 0.3
     chk "$(focuseq "$LU._shelf._cardBox.get_first_child()")" "1" "Left walks back to the first card (011 not regressed)"
+    # NEW CONTRACT (031): a further Left at the first card is a no-op (stays put, never search).
+    nested_key Left; sleep 0.3
+    chk "$(focuseq "$LU._shelf._cardBox.get_first_child()")" "1" "031: Left at the first card stays put (no escape to search)"
+    chk "$(focuseq "$LU._searchEntry.get_clutter_text()")" "0" "031: Left at the first card does not focus the search box"
 
     # --- empty corpus: open with NO history → focus falls back to the search box ---
     nested_eval "(function(){
@@ -1585,6 +1605,215 @@ case "$ID" in
     # leave an image Peek up for the screenshot
     nested_eval "(function(){ $LU._shelf.peek($LU._shelf._cards.get('img')); if(globalThis._gate) globalThis._gate(); return 1; })()" >/dev/null 2>&1
     sleep 0.4
+    ;;
+
+  029)
+    LU="Main.extensionManager.lookup('$UUID').stateObj"
+    # --- slice 029 (the hard one): on open the first card must take focus AND KEEP it.
+    #     Main.pushModal settles stage key-focus ASYNCHRONOUSLY a tick or more after
+    #     _showVisor and can null it (or hand it to the visor / the search entry),
+    #     clobbering the card focus we just set (025's live symptom: highlight on, then
+    #     off). 025's bounded-ATTEMPT guard fails live because it disconnects after its
+    #     FIRST recovery, so a LATER settle pass is never re-asserted. This case
+    #     REPRODUCES that deferred settle: a few ticks after open it programmatically
+    #     drifts stage key-focus OFF the first card (to null, then to the search entry's
+    #     ClutterText, then null, then the entry again) the way the modal does live, then
+    #     asserts the first card REGAINS and KEEPS focus + .strata-card-focused. These
+    #     are direct set_key_focus pokes (NOT Up/typing) => INVOLUNTARY drift the guard
+    #     must survive. RED against the 025 guard (stops re-asserting after the first
+    #     drift), GREEN with the time-boxed guard. ---
+    nested_eval "(function(){
+      var e=$LU, sh=e._shelf, G=imports.gi.GLib;
+      globalThis._oM=[]; for (var i=0;i<8;i++) _oM.push({id:'F'+i,mime_type:'text/plain',content_text:'focus '+i,created_at:i,has_thumbnail:false});
+      sh._fetchPage=function(o,l){ return Promise.resolve(_oM.slice(o,o+l)); };
+      e._showVisor();
+      globalThis._drifts=0;
+      var ct=e._searchEntry.get_clutter_text();
+      function drift(target, delayMs){
+        G.timeout_add(G.PRIORITY_DEFAULT, delayMs, function(){
+          if (e._visorVisible) { global.stage.set_key_focus(target); globalThis._drifts++; }
+          return false;
+        });
+      }
+      drift(null, 100); drift(ct, 180); drift(null, 260); drift(ct, 340);
+      return 1;
+    })()" >/dev/null 2>&1
+    sleep 1.4
+    focuseq(){ evnum "(function(){return global.stage.get_key_focus()===$1?1:0;})()"; }
+    chk "$(evnum "globalThis._drifts")" "4" "(setup) all four deferred focus-drifts fired after open"
+    # USER-OBSERVABLE: despite the drifts, the FIRST card holds key focus now…
+    chk "$(focuseq "$LU._shelf._cardBox.get_first_child()")" "1" "the first card REGAINS key focus after the deferred pushModal settle"
+    # …it is NOT left on null/search (the live bug)…
+    chk "$(focuseq "$LU._searchEntry.get_clutter_text()")" "0" "focus did NOT drift to the search box (no dehighlight)"
+    # …and it carries the whole-card focus highlight (highlights and STAYS).
+    chk "$(evnum "(function(){return $LU._shelf._cardBox.get_first_child().has_style_class_name('strata-card-focused')?1:0;})()")" "1" "the first card keeps .strata-card-focused (highlight sticks, no flicker-off)"
+
+    # KEEPS it: the guard window has elapsed, so the steady state must persist after a
+    # further settle a tick from now — nothing drifts it, so it stays on the card.
+    sleep 0.3
+    chk "$(focuseq "$LU._shelf._cardBox.get_first_child()")" "1" "the first card STILL holds focus after the settle window closes (focus stuck, not flickering)"
+
+    # COMPOSE (029 step 3): after open, one Left/Right navigates adjacent cards with NO
+    # skip — the first card is the true cards[0], so adjacent moves are exact.
+    nested_key Right; sleep 0.3
+    chk "$(focuseq "$LU._shelf._cardBox.get_children()[1]")" "1" "after open, one Right moves to the 2nd card (no skip)"
+    nested_key Left; sleep 0.3
+    chk "$(focuseq "$LU._shelf._cardBox.get_first_child()")" "1" "one Left returns to the true first card (no skip)"
+    ;;
+
+  031)
+    LU="Main.extensionManager.lookup('$UUID').stateObj"
+    # --- slice 031: Left navigates WITHIN the shelf only. Left while the FIRST card is
+    #     focused is a NO-OP — focus stays on the first card and must NOT jump to the
+    #     search box (the old 011 boundary behaviour, now superseded). Up / typing (023)
+    #     are the ONLY routes from a card to the search box. Drives REAL Left keystrokes
+    #     through the capture phase. ---
+    nested_eval "(function(){
+      var e=$LU, sh=e._shelf;
+      globalThis._nM=[]; for (var i=0;i<10;i++) _nM.push({id:'L'+i,mime_type:'text/plain',content_text:'left '+i,created_at:i,has_thumbnail:false});
+      sh._fetchPage=function(o,l){ return Promise.resolve(_nM.slice(o,o+l)); };
+      e._showVisor(); return 1;
+    })()" >/dev/null 2>&1
+    sleep 1.0
+    focuseq(){ evnum "(function(){return global.stage.get_key_focus()===$1?1:0;})()"; }
+
+    # park focus on the SECOND card; one Left moves to the first (normal nav still works).
+    nested_eval "(function(){global.stage.set_key_focus($LU._shelf._cardBox.get_children()[1]); return 1;})()" >/dev/null 2>&1
+    sleep 0.2
+    nested_key Left; sleep 0.3
+    chk "$(focuseq "$LU._shelf._cardBox.get_first_child()")" "1" "Left from the second card moves to the first card (normal nav)"
+
+    # NOW a Left FROM the first card is a no-op: focus STAYS on the first card.
+    nested_key Left; sleep 0.3
+    chk "$(focuseq "$LU._shelf._cardBox.get_first_child()")" "1" "Left at the first card stays on the first card (031 boundary no-op)"
+    chk "$(focuseq "$LU._searchEntry.get_clutter_text()")" "0" "Left at the first card does NOT escape to the search box (031)"
+    chk "$(evnum "(function(){return $LU._shelf._cardBox.get_first_child().has_style_class_name('strata-card-focused')?1:0;})()")" "1" "the first card keeps the focus highlight after a boundary Left"
+
+    # a second Left is still a no-op (repeatable), never reaching search.
+    nested_key Left; sleep 0.3
+    chk "$(focuseq "$LU._shelf._cardBox.get_first_child()")" "1" "repeated Left at the boundary keeps the first card focused"
+    chk "$(focuseq "$LU._searchEntry.get_clutter_text()")" "0" "repeated Left never reaches the search box"
+
+    # Right/Left still navigate between cards (the boundary change did not break nav).
+    nested_key Right; sleep 0.3
+    chk "$(focuseq "$LU._shelf._cardBox.get_children()[1]")" "1" "Right still steps to the next card"
+    nested_key Right; sleep 0.3
+    chk "$(focuseq "$LU._shelf._cardBox.get_children()[2]")" "1" "Right still steps card to card"
+    ;;
+
+  032)
+    LU="Main.extensionManager.lookup('$UUID').stateObj"
+    # --- slice 032: Down from the search box re-enters the shelf (inverse of 023's Up).
+    #     Up/Down toggle between the search box and the shelf. Down re-enters at the
+    #     last-focused card if one is tracked, else the first card; an EMPTY shelf makes
+    #     Down a no-op. Drives REAL Up/Down keystrokes through the capture phase. ---
+    nested_eval "(function(){
+      var e=$LU, sh=e._shelf;
+      globalThis._nM=[]; for (var i=0;i<10;i++) _nM.push({id:'D'+i,mime_type:'text/plain',content_text:'down '+i,created_at:i,has_thumbnail:false});
+      sh._fetchPage=function(o,l){ return Promise.resolve(_nM.slice(o,o+l)); };
+      e._showVisor(); return 1;
+    })()" >/dev/null 2>&1
+    sleep 1.0
+    focuseq(){ evnum "(function(){return global.stage.get_key_focus()===$1?1:0;})()"; }
+
+    # put focus in the search box, then a REAL Down must re-enter the shelf.
+    nested_eval "(function(){global.stage.set_key_focus($LU._searchEntry.get_clutter_text()); return 1;})()" >/dev/null 2>&1
+    sleep 0.2
+    chk "$(focuseq "$LU._searchEntry.get_clutter_text()")" "1" "(setup) the search box holds key focus"
+    nested_key Down; sleep 0.3
+    chk "$(evnum "(function(){return $LU._shelf.hasFocusedCard()?1:0;})()")" "1" "Down from the search box moves focus into the shelf (a card is focused)"
+    chk "$(evnum "(function(){var c=$LU._shelf._cardFromActor(global.stage.get_key_focus()); return (c&&c.has_style_class_name('strata-card-focused'))?1:0;})()")" "1" "the re-entered card carries .strata-card-focused"
+
+    # Up/Down toggle: Up returns to the search box, Down comes back to the shelf.
+    nested_key Up; sleep 0.3
+    chk "$(focuseq "$LU._searchEntry.get_clutter_text()")" "1" "Up returns focus to the search box (toggle half 1)"
+    nested_key Down; sleep 0.3
+    chk "$(evnum "(function(){return $LU._shelf.hasFocusedCard()?1:0;})()")" "1" "Down re-enters the shelf again (toggle half 2)"
+
+    # Down re-enters at the LAST-focused card: navigate to the 3rd card, Up to search,
+    # then Down must come back to the 3rd card (not the first card).
+    nested_key Right; sleep 0.2; nested_key Right; sleep 0.2   # 1st -> 2nd -> 3rd (index 2)
+    chk "$(focuseq "$LU._shelf._cardBox.get_children()[2]")" "1" "(setup) navigated to the third card"
+    nested_key Up; sleep 0.3
+    chk "$(focuseq "$LU._searchEntry.get_clutter_text()")" "1" "Up from the third card returns to the search box"
+    nested_key Down; sleep 0.3
+    chk "$(focuseq "$LU._shelf._cardBox.get_children()[2]")" "1" "Down re-enters at the LAST-focused card (the third), not the first"
+
+    # EMPTY shelf: Down in the search box is a no-op (focus stays in search).
+    nested_eval "(function(){
+      var e=$LU, sh=e._shelf;
+      e._hideVisor();
+      sh._fetchPage=function(o,l){ return Promise.resolve([]); };
+      e._showVisor(); return 1;
+    })()" >/dev/null 2>&1
+    sleep 1.0
+    chk "$(evnum "$LU._shelf._cardBox.get_n_children()")" "0" "(empty corpus) the shelf has no cards"
+    chk "$(focuseq "$LU._searchEntry.get_clutter_text()")" "1" "(empty corpus) focus falls back to the search box on open"
+    nested_key Down; sleep 0.3
+    chk "$(focuseq "$LU._searchEntry.get_clutter_text()")" "1" "Down on an empty shelf is a no-op (focus stays in the search box)"
+    ;;
+
+  027)
+    LU="Main.extensionManager.lookup('$UUID').stateObj"
+    # --- slice 027: entering the shelf from the search box lands on AND highlights the
+    #     TRUE first card (cards[0]) with NO skip — even when the search entry holds text
+    #     with the cursor MID-STRING (the live repro: the entry's ClutterText eats a
+    #     variable number of Left/Right presses for its own cursor, so card #1 looked
+    #     skipped, and which card was skipped VARIED with cursor position). We intercept
+    #     Left/Right in the capture phase BEFORE the entry, so the FIRST press always
+    #     enters at cards[0]. Reconciled with 031: a Left FROM the first card is a no-op
+    #     (stays put), never a jump back to search. Drives REAL keystrokes. ---
+    nested_eval "(function(){
+      var e=$LU, sh=e._shelf;
+      globalThis._rM=[]; for (var i=0;i<8;i++) _rM.push({id:'r'+i,mime_type:'text/plain',content_text:'result '+i,created_at:i,has_thumbnail:false});
+      sh._fetchPage=function(o,l){ return Promise.resolve(_rM.slice(o,o+l)); };
+      sh._fetchSearch=function(q,l){ return Promise.resolve(_rM.slice()); };   // the 8 'result' cards
+      e._showVisor(); return 1;
+    })()" >/dev/null 2>&1
+    sleep 1.0
+    focuseq(){ evnum "(function(){return global.stage.get_key_focus()===$1?1:0;})()"; }
+
+    # Put focus in the search box, type text, park the cursor MID-STRING — the exact
+    # condition under which the entry's ClutterText would eat a Right for its cursor.
+    nested_eval "(function(){
+      var e=$LU, ct=e._searchEntry.get_clutter_text();
+      if (e._teardownFocusGuard) e._teardownFocusGuard();
+      global.stage.set_key_focus(ct);
+      e._searchEntry.set_text('result');
+      ct.set_cursor_position(3);   // cursor in the middle of the text, not at the end
+      return 1;
+    })()" >/dev/null 2>&1
+    sleep 0.5
+    chk "$(focuseq "$LU._searchEntry.get_clutter_text()")" "1" "(setup) focus is in the search box with a mid-string cursor"
+    chk "$(evnum "(function(){return $LU._shelf._cardBox.get_n_children();})()")" "8" "(setup) the search shows 8 result cards"
+
+    # THE REPRO: a SINGLE Right must enter the shelf at the TRUE first card (cards[0]) —
+    # not eaten by the entry's cursor, not skipped to card #2.
+    nested_key Right; sleep 0.3
+    chk "$(focuseq "$LU._shelf._cardBox.get_first_child()")" "1" "a single Right from search-with-text enters at the TRUE first card (cards[0], no eaten arrow)"
+    chk "$(evnum "(function(){return $LU._shelf._cardBox.get_first_child().has_style_class_name('strata-card-focused')?1:0;})()")" "1" "the true first card carries .strata-card-focused (not skipped)"
+
+    # arrow nav across cards never skips: Right walks 0 -> 1 -> 2 exactly.
+    nested_key Right; sleep 0.3
+    chk "$(focuseq "$LU._shelf._cardBox.get_children()[1]")" "1" "Right steps to the 2nd card (no skip)"
+    nested_key Right; sleep 0.3
+    chk "$(focuseq "$LU._shelf._cardBox.get_children()[2]")" "1" "Right steps to the 3rd card (no skip)"
+
+    # from the 3rd card, Left walks back 2 -> 1 -> 0 exactly; a further Left at the first
+    # card is the 031 no-op (stays put), never a jump back to search.
+    nested_key Left; sleep 0.3
+    chk "$(focuseq "$LU._shelf._cardBox.get_children()[1]")" "1" "Left steps back to the 2nd card (no skip)"
+    nested_key Left; sleep 0.3
+    chk "$(focuseq "$LU._shelf._cardBox.get_first_child()")" "1" "Left reaches the TRUE first card and highlights it (not skipped)"
+    nested_key Left; sleep 0.3
+    chk "$(focuseq "$LU._shelf._cardBox.get_first_child()")" "1" "Left at the first card stays put (031: no jump to search)"
+    chk "$(focuseq "$LU._searchEntry.get_clutter_text()")" "0" "arrow nav never lands focus back in the search box via Left (031)"
+
+    # ALSO via Down (032): from the search box, Down re-enters the shelf at a real card.
+    nested_eval "(function(){global.stage.set_key_focus($LU._searchEntry.get_clutter_text()); return 1;})()" >/dev/null 2>&1
+    sleep 0.2
+    nested_key Down; sleep 0.3
+    chk "$(evnum "(function(){return $LU._shelf.hasFocusedCard()?1:0;})()")" "1" "Down from search also re-enters the shelf at a real card (032, no skip)"
     ;;
 
   *) echo "  note: no feature-specific checks for $ID (generic only)";;
