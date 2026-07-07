@@ -719,6 +719,29 @@
         "ADR-0007"
       ],
       "passes": true
+    },
+    {
+      "id": "035",
+      "title": "Frosted-glass shelf (BACKGROUND blur) + header layout: centred 30% search, right-pinned gear; cards stay opaque",
+      "category": "feature",
+      "description": "User request (live): give the SHELF holding the cards a slight blurred transparency — frosted glass — without frosting the cards themselves. St CSS has no backdrop-filter, so the blur is a Clutter effect: a Shell.BlurEffect in BACKGROUND mode (GNOME 48-50 props: radius/brightness/mode; the old `sigma` is gone) added to the visor band. The band's per-theme background-color alpha is lowered so the blurred backdrop reads through as a translucent tint. Cards, the search box and the gear are made OPAQUE (solid fills = the exact colour the old translucent tints composited to over the old near-opaque band) so ONLY the shelf is frosted and the blur never bleeds through the chrome. Blur strength is a live-tunable GSettings key `shelf-blur-radius` (default 10, range 0-400; a changed:: handler updates the effect with no reload). Also fixes the header layout in the same pass: the header becomes a Clutter.BinLayout so the search box centres on the full band width at ~30% of the monitor (set in _positionVisor, x_expand:false + x_align CENTER) while the gear pins to the right edge (x_expand:true + x_align END — the expand is required or the header shrink-wraps and END renders mid-header); and the gap below the search row is tightened 10px (shelf top padding 14->4). KEY LEARNING (documented in AGENTS.md 'Reload reality'): on Wayland an extension's JS does NOT hot-reload — disable/enable only re-reads CSS; JS loads only on a full login. So all of this was built and verified in the nested harness (Shell.BlurEffect works there; it 'looked unblurred' live purely because the JS never reloaded). UI-only, ADR-0003; daemon untouched.",
+      "steps": [
+        "Add a Shell.BlurEffect (mode BACKGROUND) to the visor band, named 'strata-blur'; radius read from the new shelf-blur-radius GSettings key and updated live via a changed:: handler.",
+        "Lower the band background-color alpha (base + per-theme dark/light) so the blurred backdrop shows through as a translucent frosted tint.",
+        "Keep the chrome opaque: cards (all states, both themes), search box (+focus) and gear (+hover) use solid rgb() fills so the blur does not bleed through them.",
+        "Header layout: Clutter.BinLayout so the search box centres at ~30% of the monitor width (x_expand:false, x_align CENTER, width set in _positionVisor) and the gear pins right (x_expand:true, x_align END); tighten the shelf top padding 14->4 to cut the search->cards gap by 10px.",
+        "shelf-blur-radius gschema key (default 10, range 0-400) is live-tunable: setting it updates the effect radius with no shell reload.",
+        "TEST (headless, verify.sh 035): band carries a BACKGROUND-mode blur effect; shelf-blur-radius drives the effect radius live; search box is centre-aligned and ~30% of the monitor; gear is END-aligned and at the right edge; cards are opaque (background alpha 255)."
+      ],
+      "blockedBy": [
+        "001",
+        "008"
+      ],
+      "refs": [
+        "v1-spec.md",
+        "ADR-0003"
+      ],
+      "passes": true
     }
   ]
 }

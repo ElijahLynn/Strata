@@ -29,6 +29,13 @@
       <summary>Width of a shelf card in pixels</summary>
     </key>
 
+    <key name="shelf-blur-radius" type="i">
+      <default>10</default>
+      <range min="0" max="400"/>
+      <summary>Frosted-glass blur radius for the shelf band (0 = off)</summary>
+      <description>Radius of the BACKGROUND-mode Shell.BlurEffect on the visor band. Higher = stronger frost; 0 disables the effect. Live-tunable — the effect updates without a shell reload.</description>
+    </key>
+
     <key name="page-size" type="i">
       <default>50</default>
       <range min="20" max="200"/>

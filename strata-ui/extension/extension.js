@@ -83,7 +83,7 @@ export default class StrataUIExtension extends Extension {
         this._connectFocusTracking(); // who's focused → excluded-apps decisions
         this._connectSignals();   // ItemAdded / ItemDeleted / HistoryCleared
         this._connectClipboardMonitor(); // capture copies → SubmitItem (GNOME path)
-        console.log('[Strata UI] enabled');
+        console.log('[Strata UI] enabled (035: shelf frosted-glass blur)');
     }
 
     disable() {
@@ -133,13 +133,46 @@ export default class StrataUIExtension extends Extension {
             reactive: true,
         });
 
+        // Frosted-glass shelf (035): blur whatever sits BEHIND the band — the
+        // desktop/windows under the transparent visor — so the shelf reads as a
+        // pane of frosted glass, NOT the cards (those paint sharp above it). This is
+        // a Clutter BACKGROUND-mode blur (there is no CSS backdrop-filter in St): it
+        // samples the framebuffer behind this actor, blurs it, and the band's own
+        // translucent background-color (lowered in the stylesheet so the blur can
+        // show through) paints over it as a tint. `radius`/`brightness`/`mode` are
+        // the current property names (GNOME 48–50; the old `sigma` is gone). The
+        // effect lives on the band actor and is torn down with it on disable.
+        // Radius is driven by the `shelf-blur-radius` GSettings key so it's tunable
+        // live (a 'changed' handler below updates the effect without a shell reload —
+        // which matters because JS changes otherwise need a full logout on Wayland).
+        this._blur = new Shell.BlurEffect({
+            mode: Shell.BlurMode.BACKGROUND,
+            radius: this._settings.get_int('shelf-blur-radius'),
+            brightness: 1.0,
+        });
+        this._band.add_effect_with_name('strata-blur', this._blur);
+
         // Header: search box (search-first) + a gear that opens our prefs.
-        const header = new St.BoxLayout({style_class: 'strata-visor-header', x_expand: true});
+        // BinLayout (overlay) so the two children position INDEPENDENTLY of each
+        // other: the search box centres on the FULL band width (a fixed ~30% width,
+        // set from the monitor in _positionVisor) while the gear pins to the right
+        // edge. A horizontal BoxLayout can't do both — it packs sequentially, so a
+        // centred search would be shoved off-centre by the gear's width.
+        const header = new St.Widget({
+            style_class: 'strata-visor-header',
+            x_expand: true,
+            layout_manager: new Clutter.BinLayout(),
+        });
         this._searchEntry = new St.Entry({
             style_class: 'strata-search',
             hint_text: 'Search clipboard…',
-            x_expand: true,
             can_focus: true,
+            // x_expand MUST be false: under the header's BinLayout an expanding child
+            // is stretched to FILL and the CENTER align + fixed width (set in
+            // _positionVisor) are both ignored — that's why the box spanned full width.
+            x_expand: false,
+            x_align: Clutter.ActorAlign.CENTER,
+            y_align: Clutter.ActorAlign.CENTER,
         });
         this._searchEntry.get_clutter_text().connect('text-changed', () => {
             this._shelf?.setQuery(this._searchEntry.get_text());
@@ -158,6 +191,12 @@ export default class StrataUIExtension extends Extension {
             child: new St.Icon({icon_name: 'emblem-system-symbolic', icon_size: 18}),
             can_focus: true,
             reactive: true,
+            // x_expand claims the header's spare width so END actually reaches the
+            // right edge (without it the header shrink-wraps its content and END
+            // renders mid-header); x_align END keeps the gear at its natural size,
+            // pinned right, while the search stays centred on the full width.
+            x_expand: true,
+            x_align: Clutter.ActorAlign.END,
             y_align: Clutter.ActorAlign.CENTER,
         });
         this._gearButton.connect('clicked', () => this._onGearClicked());
@@ -426,6 +465,10 @@ export default class StrataUIExtension extends Extension {
         this._band.set_height(h);
         this._band.x_align = Clutter.ActorAlign.FILL;
         this._band.y_align = edge === 'top' ? Clutter.ActorAlign.START : Clutter.ActorAlign.END;
+
+        // Search box is a fixed fraction of the monitor width, centred in the header
+        // (see _buildVisor). Recomputed here so it tracks the monitor on move/resize.
+        this._searchEntry?.set_width(Math.round(m.width * 0.30));
     }
 
     /** Gear handler: drop the modal grab, then open OR raise our prefs in-UI (req #5).
@@ -545,6 +588,9 @@ export default class StrataUIExtension extends Extension {
             this._settings.connect('changed::visor-height', () => this._relayoutVisor()),
             this._settings.connect('changed::card-width', () =>
                 this._shelf?.setCardWidth(this._settings.get_int('card-width'))),
+            this._settings.connect('changed::shelf-blur-radius', () => {
+                if (this._blur) this._blur.radius = this._settings.get_int('shelf-blur-radius');
+            }),
             this._settings.connect('changed::theme', () => this._applyTheme()),
             this._settings.connect('changed::max-history', onLimitsChanged),
             this._settings.connect('changed::max-text-mb', onLimitsChanged),

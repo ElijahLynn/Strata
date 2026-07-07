@@ -125,6 +125,52 @@ prefs/gear bug shipped green, and why the 005 paste-back test passed while
 paste-back was broken in real use (it asserted an internal field, not the actual
 system clipboard).
 
+## Reload reality & the fast visual-iteration loop
+
+Know exactly what reloads in a running session and what does NOT — getting this
+wrong wastes hours "fixing" code that was never actually loaded:
+
+- **CSS (`stylesheet.css`) hot-reloads.** `gnome-extensions disable <uuid> &&
+  gnome-extensions enable <uuid>` makes St re-read the stylesheet. This is the
+  FASTEST path — for a pure-CSS tweak (colour, opacity, padding, a class already
+  in the markup), edit and disable/enable in the human's LIVE shell and they see
+  it immediately. No nested shell, no logout.
+- **JavaScript does NOT hot-reload on Wayland.** `disable/enable` reuses the
+  already-imported ES module, so `extension.js` / `ui/*.js` / `prefs.js` edits do
+  **not** take effect. The D-Bus `ReloadExtension` method is deprecated and dead,
+  and `Alt+F2 r` is X11-only. JS changes load ONLY on a full shell restart =
+  **log out and back in**. If you change JS and just disable/enable, you are
+  testing STALE code — every symptom you then chase is a ghost. (This exact trap
+  ate a whole session on the 035 shelf-blur work: the blur is a JS effect, it
+  never loaded live, and the "it's not blurred" reports were all stale JS.)
+  A quick self-check: put a version marker in the `enable()` log line and confirm
+  the new string appears in `journalctl` after the reload; if it doesn't, JS
+  didn't reload.
+- **`dconf`/GSettings keys change live.** A JS value exposed as a settings key
+  with a `changed::` handler can be tuned at runtime with `gsettings set` — no
+  reload at all. Prefer this for anything you'll want to iterate on (e.g. the
+  `shelf-blur-radius` key drives the blur strength live). CLI access to the
+  extension's local schema needs `GSETTINGS_SCHEMA_DIR=<ext>/schemas`.
+
+**So the loop for any JS or visual change is:**
+
+1. **Test in the nested shell FIRST — this is the fast self-review cycle.**
+   `source test-harness/launch-nested.sh` then stage + `nested_up 1280x720
+   "$STAGE/<uuid>"` (copy `extension/` to a dir named exactly `<uuid>` first, as
+   `verify.sh` does). The nested shell boots a THROWAWAY GNOME Shell that loads the
+   extension **fresh every time** (so JS applies), with unsafe-mode `nested_eval`
+   (introspect live actors/effects), `nested_key`/`nested_click` (real input), and
+   `nested_screenshot` (SEE the result). Iterate here — edit, re-boot, screenshot,
+   introspect — until you are confident. This needs no logout and does not touch
+   the human's session or clipboard.
+2. **Get design approval via screenshots.** When it looks right in nested, show the
+   human the screenshot(s) and get explicit sign-off on the design BEFORE asking
+   for anything disruptive.
+3. **Only then ask the human to log out / back in** to load the JS into their real
+   session for final approval against real windows. That single logout is the one
+   unavoidable step; do not burn the human's logouts as a debugging tool — the
+   nested shell is where you build confidence first.
+
 ## Orientation
 
 - **UI-only.** Never modify `strata-daemon` (ADR-0003). "Rust thinks, JS draws."

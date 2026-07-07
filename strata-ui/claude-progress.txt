@@ -5,6 +5,35 @@ Entries are headed with a UTC ISO-8601 timestamp (YYYY-MM-DDThh:mm:ssZ, from
 Harness: https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents
 
 ────────────────────────────────────────────────────────────────────────
+2026-07-07T06:27:15Z — 035: Frosted-glass shelf (BACKGROUND blur) + header layout (built+verified in nested; NOT yet loaded live)
+
+WHAT: the SHELF band now reads as frosted glass — a Shell.BlurEffect (mode
+BACKGROUND, GNOME 48-50 props radius/brightness/mode) on the band, with the
+per-theme band background-color alpha lowered so the blurred backdrop shows
+through as a translucent tint. Cards, search box and gear stay OPAQUE (solid rgb()
+= the colour the old translucent tints composited to over the old near-opaque band)
+so ONLY the shelf is frosted. Blur strength = live GSettings key
+`shelf-blur-radius` (default 10, range 0-400; changed:: handler updates the effect
+with no reload). Same pass fixes the header: Clutter.BinLayout, search centred at
+~30% of the monitor (x_expand:false + x_align CENTER, width set in _positionVisor),
+gear pinned right (x_expand:true + x_align END — expand REQUIRED or the header
+shrink-wraps and END lands mid-header); shelf top padding 14->4 tightens the
+search->cards gap by 10px.
+
+KEY LEARNING (now in AGENTS.md 'Reload reality & the fast visual-iteration loop'):
+on Wayland an extension's JS does NOT hot-reload — `gnome-extensions disable/enable`
+only re-reads CSS; JS loads ONLY on a full login. The blur is JS, so it never ran
+live this session; it 'looked unblurred' purely because of that. Everything here
+was built + verified in the NESTED harness (Shell.BlurEffect works there), with
+dark/light screenshots over real DB data and a real browser page for review.
+
+VERIFY: `./test-harness/verify.sh 035` — band has a BACKGROUND-mode blur effect;
+shelf-blur-radius drives the effect radius live; search centre-aligned + ~30% wide;
+gear END-aligned + at the right edge; cards opaque (bg alpha 255). To load into a
+real session: log out / back in (Wayland), then tune live with
+`gsettings set org.gnome.shell.extensions.strata-ui shelf-blur-radius <n>`.
+
+────────────────────────────────────────────────────────────────────────
 2026-06-28T03:36:02Z — 034: Wire Peek prefetch to CARD FOCUS so the FIRST peek is instant too (TDD red→green→teeth)
 
 THE GAP (post-033): slice 033 added peek.prefetch(card) — it fetches + decodes a

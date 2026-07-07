@@ -2027,6 +2027,31 @@ case "$ID" in
     sleep 0.3
     ;;
 
+  035)
+    LU="Main.extensionManager.lookup('$UUID').stateObj"
+    GS="$EXT/schemas/org.gnome.shell.extensions.strata-ui.gschema.xml"
+    # --- static: schema key + the effect + the layout fix ---
+    chk "$(grep -qs 'name="shelf-blur-radius"' "$GS" && echo y || echo n)" "y" "gschema has key: shelf-blur-radius"
+    chk "$(grep -qs 'Shell.BlurEffect' "$EXT/extension.js" && echo y || echo n)" "y" "extension.js uses Shell.BlurEffect"
+    # --- runtime: open the visor with stub cards ---
+    nested_eval "(function(){var e=$LU,sh=e._shelf; globalThis._bM=[]; for(var i=0;i<8;i++)_bM.push({id:'B'+i,mime_type:'text/plain',content_text:'card '+i,created_at:i,has_thumbnail:false}); sh._fetchPage=function(o,l){return Promise.resolve(_bM.slice(o,o+l));}; e._settings.set_string('theme','dark'); e._showVisor(); return 1;})()" >/dev/null 2>&1
+    sleep 0.8
+    # frosted shelf: a BACKGROUND-mode (=1) blur effect lives on the band
+    chk "$(evnum "(function(){var e=$LU._band.get_effect('strata-blur'); return e?e.mode:-1;})()")" "1" "shelf band carries a BACKGROUND-mode blur effect"
+    # radius is driven by the setting, LIVE (set 55 -> effect reports 55)
+    nested_eval "(function(){$LU._settings.set_int('shelf-blur-radius', 55); return 1;})()" >/dev/null 2>&1
+    sleep 0.3
+    chk "$(evnum "(function(){return $LU._band.get_effect('strata-blur').radius;})()")" "55" "shelf-blur-radius drives the effect radius live"
+    # search box: centre-aligned, ~30% of the monitor width
+    chk "$(evnum "(function(){return $LU._searchEntry.x_align===imports.gi.Clutter.ActorAlign.CENTER?1:0;})()")" "1" "search box is centre-aligned"
+    chk "$(evnum "(function(){var m=Main.layoutManager.primaryMonitor; return Math.abs($LU._searchEntry.get_width()-Math.round(m.width*0.30))<=2?1:0;})()")" "1" "search box width is ~30% of the monitor"
+    # gear: END-aligned and actually at the right edge
+    chk "$(evnum "(function(){return $LU._gearButton.x_align===imports.gi.Clutter.ActorAlign.END?1:0;})()")" "1" "gear is END-aligned"
+    chk "$(evnum "(function(){var g=$LU._gearButton,m=Main.layoutManager.primaryMonitor; return (g.get_transformed_position()[0]+g.get_transformed_size()[0])>m.width*0.9?1:0;})()")" "1" "gear sits at the right edge of the band"
+    # cards stay OPAQUE (only the shelf is frosted): background alpha == 255
+    chk "$(evnum "(function(){var b=$LU._shelf._cardBox; if(!b.get_n_children())return -1; return b.get_child_at_index(0).get_theme_node().get_background_color().alpha;})()")" "255" "cards are opaque (background alpha 255)"
+    ;;
+
   *) echo "  note: no feature-specific checks for $ID (generic only)";;
 esac
 
