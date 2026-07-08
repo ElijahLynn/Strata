@@ -86,24 +86,40 @@
 /* Keyboard-selected card (Left/Right nav, feature 011). It MUST read as clearly
  * selected, as the WHOLE card — navigation is invisible otherwise.
  *
- * The selection cue is a single clean whole-card BACKGROUND fill. Two things this
- * rule has to get right:
+ * The selection cue is a whole-card BACKGROUND fill, tinted with the system accent
+ * colour, plus a matching accent-colour ring (036) — both built from
+ * `-st-accent-color` so the card reads as the SAME colour as the search box's real
+ * focus look, not just a thin ring of it. (A hardcoded navy-blue fill with only a
+ * thin accent ring on top reads as "blue with a sliver of colour at the edge", not
+ * "accent-coloured" — the fill itself has to carry the hue for the match to
+ * actually land.) Note the search box's own `.strata-search:focus { border-color:
+ * … }` (a plain blue) is NOT what you see there — GNOME's built-in `StEntry:focus`
+ * rule paints an `!important` inset box-shadow ring in the system accent colour
+ * (e.g. orange, teal, whatever the user picked in Settings) right on top of it; the
+ * ring below uses that exact mechanism (`-st-accent-color` via `st-mix`), and the
+ * background mixes the same accent into the card's own base colour so the whole
+ * card, not just its edge, shifts with it. inset (not outline) so the ring draws
+ * INSIDE the card's own box and can never be clipped at the band's top/bottom
+ * edges — no thickened border needed either.
+ * Three things this rule has to get right:
  *   1) Colour alone is out-specified: the per-theme `.strata-theme-* .strata-card`
  *      rules are two classes (specificity 0,2,0) and beat a single-class
- *      `.strata-card-focused` (0,1,0) on background-color. So the per-theme focused
- *      tints below are also two-class (0,2,0) AND live LATER in the file than
- *      `.strata-theme-* .strata-card`, so they win the equal-specificity tie on
- *      source order. (The previous version put them BEFORE, so the plain-card
- *      background won the cascade back and the fill silently vanished — that is the
- *      whole-card half of the live bug.)
+ *      `.strata-card-focused` (0,1,0) on background-color. So the per-theme
+ *      focused tints below are also two-class (0,2,0) AND live LATER in the file
+ *      than `.strata-theme-* .strata-card`, so they win the equal-specificity tie
+ *      on source order. (The previous version put them BEFORE, so the plain-card
+ *      background won the cascade back and the fill silently vanished — that is
+ *      the whole-card half of the live bug.)
  *   2) NO outline / no thickened border (024). 011 had also kept an `outline: 3px`
  *      plus a `border-width: 2px` as "secondary edge emphasis", but that drew a
  *      SECOND line on the card's left/right edges on top of the fill — a duplicate
- *      double-line. A BACKGROUND fill can't be clipped at the band's top/bottom
- *      edges, so the fill alone is the cue; the redundant outline/thick border are
- *      gone, leaving the card's normal 1px border untouched. */
+ *      double-line. An inset box-shadow doesn't add a second line the way an
+ *      outline/thicker border did, so that bug doesn't return.
+ *   3) Follows the user's accent colour live — no hardcoded hue to drift out of
+ *      sync if they change it in Settings. */
 .strata-card-focused {
-  background-color: rgb(59, 76, 109);
+  background-color: st-mix(-st-accent-color, rgb(39, 39, 45), 50%);
+  box-shadow: inset 0 0 0 2px st-transparentize(st-mix(-st-accent-color, #ffffff, 60%), 0.2);
 }
 .strata-card-focused .strata-card-text,
 .strata-card-focused .strata-card-file-name {
@@ -268,18 +284,21 @@
    Two-class (specificity 0,2,0) so they MATCH `.strata-theme-* .strata-card`, and
    declared AFTER it so the equal-specificity tie breaks in the focused rule's
    favour (source order). The BACKGROUND fill is the whole-card selection cue that
-   can't be clipped at the band's top/bottom edges, and is the ONLY edge signal
-   (024: the secondary outline/thick border were a duplicate double-line and were
-   removed). Keep card text readable on the tint. */
+   can't be clipped at the band's top/bottom edges, and (036) is itself mixed from
+   the system accent colour so the fill — not just the ring on top of it — carries
+   the same hue GNOME already uses for the search box's real focus ring. Keep card
+   text readable on the tint. */
 .strata-theme-dark .strata-card-focused {
-  background-color: rgb(59, 76, 109);
+  background-color: st-mix(-st-accent-color, rgb(39, 39, 45), 50%);
+  box-shadow: inset 0 0 0 2px st-transparentize(st-mix(-st-accent-color, #ffffff, 60%), 0.2);
 }
 .strata-theme-dark .strata-card-focused .strata-card-text,
 .strata-theme-dark .strata-card-focused .strata-card-file-name {
   color: rgba(255, 255, 255, 0.98);
 }
 .strata-theme-light .strata-card-focused {
-  background-color: rgb(187, 206, 242);
+  background-color: st-mix(-st-accent-color, rgb(236, 236, 238), 50%);
+  box-shadow: inset 0 0 0 2px st-transparentize(st-mix(-st-accent-color, #ffffff, 60%), 0.2);
 }
 .strata-theme-light .strata-card-focused .strata-card-text,
 .strata-theme-light .strata-card-focused .strata-card-file-name {
