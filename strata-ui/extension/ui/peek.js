@@ -108,7 +108,7 @@ export class Peek {
         // Text/code container.
         this._panel = new St.BoxLayout({
             style_class: 'strata-peek-panel',
-            vertical: true,
+            orientation: Clutter.Orientation.VERTICAL,
             x_expand: true,
             y_expand: true,
         });
@@ -128,7 +128,7 @@ export class Peek {
         ct.set_selectable(true);
         // A ScrollView's child must be St.Scrollable; a bare St.Label is not, so
         // wrap it in a BoxLayout (as the shelf does with its cards).
-        this._textBox = new St.BoxLayout({ vertical: true, x_expand: true, y_expand: true });
+        this._textBox = new St.BoxLayout({ orientation: Clutter.Orientation.VERTICAL, x_expand: true, y_expand: true });
         this._textBox.add_child(this._textLabel);
         this._textScroll.set_child(this._textBox);
         this._panel.add_child(this._textScroll);

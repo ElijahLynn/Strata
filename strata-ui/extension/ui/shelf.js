@@ -10,6 +10,7 @@
  * Peek (006), typed cards (007), live signals (009).
  */
 
+import Clutter from 'gi://Clutter';
 import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';
 import Meta from 'gi://Meta';
@@ -98,7 +99,7 @@ export class Shelf {
     _buildUI() {
         this._cardBox = new St.BoxLayout({
             style_class: 'strata-shelf',
-            vertical: false,
+            orientation: Clutter.Orientation.HORIZONTAL,
             y_expand: true,
         });
         this._scroll = new St.ScrollView({

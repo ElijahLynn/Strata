@@ -5,6 +5,27 @@
   "instructions": "Edit ONLY the `passes` field of a feature, and flip it to true ONLY after carefully testing every step. Never delete, weaken, or merge a feature to make it pass. Work the highest-priority feature whose blockedBy are all passing. UI-only: do not modify strata-daemon (ADR-0003).",
   "features": [
     {
+      "id": "036",
+      "title": "Restore Strata UI and Ctrl+Alt+C on GNOME Shell 51",
+      "category": "compatibility",
+      "description": "GNOME Shell 51.1 reports Strata UI as OUT OF DATE because metadata declares only Shell 48, 49, and 50. Restore compatibility without upgrading, rebuilding, or changing the pinned Strata daemon or enabling the original Strata extension. Work only this slice for this request; leave unrelated pending features untouched.",
+      "steps": [
+        "Add a verify.sh 036 case that reproduces the GNOME 51 version rejection (RED) before changing extension code or metadata",
+        "Declare GNOME 51 support and resolve any UI compatibility failures demonstrated by a fresh nested GNOME 51 shell, without disabling extension version validation globally",
+        "In the nested shell, assert the extension is active and real Ctrl+Alt+C key events open and toggle the visor; Escape dismisses it",
+        "Run verify.sh 036 and the full verify.sh all suite, reporting any pre-existing failures rather than weakening tests",
+        "Restore the live extension if possible and confirm its state; if GNOME caches the old metadata, report that logout/login is required without ending the user's session",
+        "Do not modify or upgrade the pinned daemon, its package configuration, or the original Strata extension; do not commit without explicit user permission"
+      ],
+      "blockedBy": [],
+      "refs": [
+        "ADR-0003",
+        "../AGENTS.md",
+        "../extension/metadata.json"
+      ],
+      "passes": false
+    },
+    {
       "id": "001",
       "title": "Empty visor",
       "category": "infrastructure",

@@ -128,7 +128,7 @@ export default class StrataUIExtension extends Extension {
 
         this._band = new St.BoxLayout({
             style_class: 'strata-visor-band',
-            vertical: true,
+            orientation: Clutter.Orientation.VERTICAL,
             x_expand: true,
             reactive: true,
         });

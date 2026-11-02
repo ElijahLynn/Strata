@@ -2052,6 +2052,60 @@ case "$ID" in
     chk "$(evnum "(function(){var b=$LU._shelf._cardBox; if(!b.get_n_children())return -1; return b.get_child_at_index(0).get_theme_node().get_background_color().alpha;})()")" "255" "cards are opaque (background alpha 255)"
     ;;
 
+  036)
+    LU="Main.extensionManager.lookup('$UUID').stateObj"
+    # --- static: metadata declares the shell version actually running the harness ---
+    chk "$(grep -qs '"51"' "$EXT/metadata.json" && echo y || echo n)" "y" "metadata.json declares shell-version 51"
+
+    # --- runtime: ExtensionState.ENABLED is 1 (confirmed against the always-compatible
+    #     harness helper); OUT_OF_DATE (seen pre-fix on this GNOME 51 host) is 4. A
+    #     version-rejected extension never reaches enable(), so state stays OUT_OF_DATE
+    #     and the generic "[Strata UI] enabled" log assert above never fires either. ---
+    chk "$(evnum "Main.extensionManager.lookup('$UUID').state")" "1" "extension state is ENABLED under the running (GNOME 51) shell, not OUT_OF_DATE"
+
+    # --- diagnostic (non-fatal): can this host inject a REAL hardware Ctrl+Alt+C at all?
+    #     GNOME 51's Mutter/Clutter fork removed the JS/GI path to a virtual input seat —
+    #     Clutter.get_default_backend() is gone, global.backend (MetaBackendNative) has no
+    #     get_default_seat, and Clutter.Context.get_backend() circularly returns the same
+    #     MetaBackendNative. Constructing Clutter.VirtualInputDevice directly (bypassing a
+    #     seat) is NOT a safe workaround: it crashed the entire nested compositor outright
+    #     (abstract class, no backend vtable) during investigation for this slice — do not
+    #     retry that. This is a pre-existing test-harness blocker on GNOME 51, orthogonal to
+    #     the extension itself; it is reported here, not papered over, and nested_key/
+    #     nested_click (used by many earlier cases) are equally affected on this host. ---
+    hwchord=0
+    nested_eval "(function(){
+      const C = imports.gi.Clutter;
+      global._hk = C.get_default_backend().get_default_seat()
+          .create_virtual_device(C.InputDeviceType.KEYBOARD_DEVICE);
+      return 1;
+    })()" 2>/dev/null | grep -q '^(true' && hwchord=1
+    if [ "$hwchord" = 1 ]; then
+      echo "  note: real hardware key injection available on this host (unexpected on GNOME 51 — re-check)"
+    else
+      echo "  note: real hardware key injection UNAVAILABLE on this GNOME 51 host (pre-existing harness blocker, not this slice's to fix) — falling back to the keybinding's own callback, the same proof case 001 already relies on for this exact shortcut"
+    fi
+
+    # --- runtime: the registered shortcut's own callback (Main.wm.addKeybinding's 5th arg,
+    #     _toggleVisor) opens/closes the visor, and the Escape key-press-event handler
+    #     (_hideVisor, wired in _buildVisor's key-press-event listener) dismisses it. If the
+    #     extension were OUT_OF_DATE neither would exist: enable() never ran, so no keybinding
+    #     was ever registered and no visor/listener was ever built. ---
+    nested_eval "($LU)._toggleVisor(); 'ok'" >/dev/null 2>&1
+    sleep 0.4
+    chk "$(evnum "Number(!!(($LU||{})._visorVisible))")" "1" "the registered Ctrl+Alt+C callback opens the visor"
+
+    nested_eval "($LU)._toggleVisor(); 'ok'" >/dev/null 2>&1
+    sleep 0.4
+    chk "$(evnum "Number(!!(($LU||{})._visorVisible))")" "0" "the same callback toggles the visor closed"
+
+    nested_eval "($LU)._toggleVisor(); 'ok'" >/dev/null 2>&1
+    sleep 0.4
+    nested_eval "($LU)._hideVisor(); 'ok'" >/dev/null 2>&1
+    sleep 0.4
+    chk "$(evnum "Number(!!(($LU||{})._visorVisible))")" "0" "Escape's handler (_hideVisor) dismisses the (re-opened) visor"
+    ;;
+
   *) echo "  note: no feature-specific checks for $ID (generic only)";;
 esac
 

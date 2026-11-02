@@ -46,7 +46,7 @@ class Card extends St.Button {
 
         const body = new St.BoxLayout({
             style_class: 'strata-card-body',
-            vertical: true,
+            orientation: Clutter.Orientation.VERTICAL,
             x_expand: true,
             y_expand: true,
         });
@@ -92,7 +92,7 @@ class Card extends St.Button {
 
     /** Link card: the URL, link-styled, with the hostname as a subtitle. */
     _buildLink(url) {
-        const box = new St.BoxLayout({ style_class: 'strata-card-link', vertical: true, y_expand: true });
+        const box = new St.BoxLayout({ style_class: 'strata-card-link', orientation: Clutter.Orientation.VERTICAL, y_expand: true });
         const host = (URL_HOST_RE.exec(url)?.[1] ?? '').replace(/^www\./, '');
 
         const link = new St.Label({ text: url, style_class: 'strata-card-link-url', x_expand: true });
@@ -109,7 +109,7 @@ class Card extends St.Button {
 
     /** Color card: a swatch filled with the hex, plus the hex string below it. */
     _buildColor(hex) {
-        const box = new St.BoxLayout({ style_class: 'strata-card-color', vertical: true, y_expand: true });
+        const box = new St.BoxLayout({ style_class: 'strata-card-color', orientation: Clutter.Orientation.VERTICAL, y_expand: true });
         // hex came straight from COLOR_RE, so it's safe to drop into CSS.
         this._swatch = new St.Widget({
             style_class: 'strata-card-swatch',
@@ -126,14 +126,14 @@ class Card extends St.Button {
     /** File(s) card: an icon plus the filename(s) parsed from the uri-list. */
     _buildFile(content) {
         const names = fileNames(content);
-        const box = new St.BoxLayout({ style_class: 'strata-card-file', vertical: false, y_expand: true });
+        const box = new St.BoxLayout({ style_class: 'strata-card-file', orientation: Clutter.Orientation.HORIZONTAL, y_expand: true });
         this._fileIcon = new St.Icon({
             icon_name: names.length > 1 ? 'folder-symbolic' : 'text-x-generic-symbolic',
             icon_size: 32,
             style_class: 'strata-card-file-icon',
             y_align: Clutter.ActorAlign.CENTER,
         });
-        const text = new St.BoxLayout({ vertical: true, x_expand: true, y_align: Clutter.ActorAlign.CENTER });
+        const text = new St.BoxLayout({ orientation: Clutter.Orientation.VERTICAL, x_expand: true, y_align: Clutter.ActorAlign.CENTER });
         this._fileText = new St.Label({
             text: names[0] ?? '(no files)',
             style_class: 'strata-card-file-name',
