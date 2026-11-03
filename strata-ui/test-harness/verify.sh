@@ -2106,6 +2106,35 @@ case "$ID" in
     chk "$(evnum "Number(!!(($LU||{})._visorVisible))")" "0" "Escape's handler (_hideVisor) dismisses the (re-opened) visor"
     ;;
 
+  037)
+    LU="Main.extensionManager.lookup('$UUID').stateObj"
+    # --- runtime: L0 is a long entry whose daemon preview is exactly the 200-char cap;
+    #     S0 is a short complete entry. _fetchContent is stubbed and records its ids. ---
+    nested_eval "(function(){
+      var e=$LU, sh=e._shelf;
+      var word='lorem ipsum dolor sit amet ', full=''; while(full.length<2000) full+=word;
+      globalThis._tFull=full;
+      globalThis._tM=[{id:'L0',mime_type:'text/plain',content_text:full.slice(0,200),created_at:2,has_thumbnail:false},
+                      {id:'S0',mime_type:'text/plain',content_text:'short complete entry',created_at:1,has_thumbnail:false}];
+      globalThis._tF=[];
+      sh._fetchPage=function(o,l){ return Promise.resolve(_tM.slice(o,o+l)); };
+      sh._fetchContent=function(id){ _tF.push(id); return Promise.resolve(['text/plain', new TextEncoder().encode(_tFull)]); };
+      e._showVisor(); return 1;
+    })()" >/dev/null 2>&1
+    sleep 1.3
+    LBL="$LU._shelf._cards.get('L0')._textLabel"
+    chk "$(evnum "(function(){return globalThis._tF.indexOf('L0')>=0?1:0;})()")" "1" "capped (200-char) preview fetches the full content"
+    chk "$(evnum "(function(){return globalThis._tF.indexOf('S0')>=0?1:0;})()")" "0" "short complete preview is never fetched"
+    chk "$(evnum "(function(){return $LBL.get_text().length>200?1:0;})()")" "1" "long card's label text grows past the 200-char daemon preview"
+    chk "$(evnum "(function(){return $LBL.get_clutter_text().get_layout().is_ellipsized()?1:0;})()")" "1" "long card's text is ellipsized at the card edge"
+    # last rendered line reaches the bottom of the card body (within one line + padding), not halfway
+    chk "$(evnum "(function(){var l=$LBL,c=$LU._shelf._cards.get('L0'); var lay=l.get_clutter_text().get_layout(); var px=lay.get_pixel_extents()[1]; var lh=px.height/Math.max(1,lay.get_line_count()); return (c.get_height()-(px.height))<=(lh+40)?1:0;})()")" "1" "long card's text fills down to the card's bottom edge"
+    chk "$(evnum "(function(){return $LU._shelf._cards.get('S0')._textLabel.get_clutter_text().get_layout().is_ellipsized()?1:0;})()")" "0" "short card shows no ellipsis"
+    chk "$(evnum "(function(){return $LU._shelf._cards.get('S0')._textLabel.get_text()==='short complete entry'?1:0;})()")" "1" "short card text is unchanged"
+    # fallback: before/without the fetch, a capped preview ends with an ellipsis
+    chk "$(evnum "(function(){var C=$LU._shelf._cards.get('L0').constructor; var c=new C({id:'X',mime_type:'text/plain',content_text:globalThis._tFull.slice(0,200)}); var t=c._textLabel.get_text(); c.destroy(); return t.endsWith('…')?1:0;})()")" "1" "capped preview ends with an ellipsis before the full text arrives"
+    ;;
+
   *) echo "  note: no feature-specific checks for $ID (generic only)";;
 esac
 

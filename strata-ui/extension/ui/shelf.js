@@ -23,6 +23,7 @@ const RENDER_BATCH = 20;          // cards inserted per idle tick (paced renderi
 const LOAD_MORE_THRESHOLD = 200;  // px from the end that triggers the next page
 const SEARCH_DEBOUNCE_MS = 150;   // collapse rapid keystrokes into one query
 const ADD_DEBOUNCE_MS = 50;       // coalesce a burst of ItemAdded into one render (009)
+const FULL_TEXT_KEEP = 4000;      // raw chars kept per fetched full text (037); card.js trims further
 const PREFETCH_SETTLE_MS = 120;   // wait for card focus to settle before warming the
                                   // focused image (034) — rapid Left/Right nav cancels the
                                   // pending timer, so only the card focus lands on is fetched
@@ -63,6 +64,12 @@ export class Shelf {
         /** @type {Set<string>} ids already fetched/in-flight, so a visible card
          *  is never re-requested while it stays on screen. */
         this._thumbRequested = new Set();
+
+        // Full text for capped previews (037), fetched only for visible cards.
+        /** @type {Map<string, string>} id -> full content (session cache). */
+        this._fullTextCache = new Map();
+        /** @type {Set<string>} ids already fetched/in-flight this view. */
+        this._textRequested = new Set();
 
         // Selection state (feature 005).
         this._picking = false;   // de-dupes a pick (click + key, or doubled events)
@@ -149,6 +156,7 @@ export class Shelf {
         // Drop per-view thumbnail requests (cards are about to be rebuilt) but
         // keep the session path cache so a reopen re-applies without re-fetching.
         this._thumbRequested.clear();
+        this._textRequested.clear();
         this._clear();
         this._loadPage(0, this._loadEpoch);
     }
@@ -224,6 +232,7 @@ export class Shelf {
         this._hasMore = false;
         this._loadedOffset = 0;
         this._thumbRequested.clear();
+        this._textRequested.clear();
         this.renderStats.batches = 0;
         this._clear();
         this._renderBatched(metas, renderEpoch).then(() => {
@@ -386,11 +395,40 @@ export class Shelf {
         const lo = adj.value;
         const hi = adj.value + adj.page_size;
         for (const card of this._cardBox.get_children()) {
-            if (!card.isImage || this._thumbRequested.has(card.strataId)) continue;
+            const wantsThumb = card.isImage && !this._thumbRequested.has(card.strataId);
+            const wantsText = card.isTruncatedPreview && !this._textRequested.has(card.strataId);
+            if (!wantsThumb && !wantsText) continue;
             const box = card.get_allocation_box();
             if (box.x2 - box.x1 <= 0) continue;        // not laid out yet
-            if (box.x2 >= lo && box.x1 <= hi) this._ensureThumb(card);
+            if (box.x2 < lo || box.x1 > hi) continue;
+            if (wantsThumb) this._ensureThumb(card);
+            if (wantsText) this._ensureFullText(card);
         }
+    }
+
+    // -- Full text for capped previews (037) -----------------------------------
+
+    /** A visible text card whose daemon preview hit the PREVIEW_CHARS cap gets
+     *  its full content so the text fills the card and ellipsizes at the bottom
+     *  edge. Once per id per view; the result is cached for the session. */
+    _ensureFullText(card) {
+        const id = card.strataId;
+        if (!card.isTruncatedPreview || this._textRequested.has(id)) return;
+        this._textRequested.add(id);
+
+        if (this._fullTextCache.has(id)) {
+            card.setFullText(this._fullTextCache.get(id));
+            return;
+        }
+        this._fetchContent(id).then(([, bytes]) => {
+            // Keep only what a card can show; the cap lives in card.js.
+            const text = new TextDecoder('utf-8').decode(bytes).slice(0, FULL_TEXT_KEEP);
+            this._fullTextCache.set(id, text);
+            this._cards.get(id)?.setFullText(text);    // card may be gone
+        }).catch(e => {
+            this._textRequested.delete(id);            // allow a later retry
+            console.error('[Strata UI] full-text fetch failed:', e);
+        });
     }
 
     // -- Live updates (feature 009) --------------------------------------------
@@ -434,6 +472,8 @@ export class Shelf {
         this._wipeThumbnailCache();
         this._thumbCache.clear();
         this._thumbRequested.clear();
+        this._fullTextCache.clear();
+        this._textRequested.clear();
         this._clear();
     }
 
@@ -460,6 +500,8 @@ export class Shelf {
         try { GLib.unlink(path); } catch (_) {}
         this._thumbCache.delete(id);
         this._thumbRequested.delete(id);
+        this._fullTextCache.delete(id);
+        this._textRequested.delete(id);
         const card = this._cards.get(id);
         if (card) {
             card.destroy();

@@ -763,6 +763,29 @@
         "ADR-0003"
       ],
       "passes": true
+    },
+    {
+      "id": "037",
+      "title": "Text cards fill to the bottom edge, then ellipsize, when the entry is longer than the daemon preview",
+      "category": "bug",
+      "description": "User report (live, screenshot): long text cards stop about halfway down the card with no ellipsis, so it is not clear there is a lot more text. Root cause: GetHistory/SearchHistory return content_text cut to the daemon's PREVIEW_CHARS (200) via substr (db.rs), and the card renders that 200-char excerpt in full. It fits in roughly half a 300px card, so Pango's END ellipsis never triggers, and card.js only appends a '…' past its own PREVIEW_LEN (600), which a 200-char preview never reaches. The daemon is out of scope (ADR-0003), so the fix is UI-side. When a text card's preview length equals the daemon cap (meaning it was probably truncated), the shelf lazily fetches the full content through the existing _fetchContent seam (GetItemContent), only for visible cards, the same way image thumbnails are fetched on demand. It decodes the bytes as UTF-8, collapses whitespace, cuts the result to card.js PREVIEW_LEN, and replaces the label text. Pango's wrapped END ellipsis then fills the card to its bottom edge and puts the '…' on the last visible line. Until the fetch lands, and if it fails, a capped preview gets a trailing '…' so a truncated entry never looks complete. Previews shorter than the cap are complete and are never fetched. Link, color, file and image cards are unchanged.",
+      "steps": [
+        "TEST first (RED, verify.sh 037): stub _fetchContent to return a ~2000-char text for an item whose GetHistory preview is exactly 200 chars. Assert that the card label's text grows past 200 chars after the fetch, that the label's Pango layout is ellipsized (layout.is_ellipsized() true), and that the last rendered line reaches the card body's bottom padding rather than stopping halfway. Also assert that a 50-char item is never fetched and shows no ellipsis.",
+        "Export the daemon preview cap as a named constant in card.js (DAEMON_PREVIEW_CHARS = 200, with a comment pointing at strata-daemon/src/db.rs PREVIEW_CHARS) and a card.isTruncatedPreview flag set when the text preview length is at least that cap.",
+        "Shown before and after a failed fetch: a truncated preview renders with a trailing '…'.",
+        "shelf.js: for visible text cards with isTruncatedPreview, fetch the full content via _fetchContent once per id (reuse the in-flight/fetched Set pattern used for thumbnails), decode UTF-8, cap to PREVIEW_LEN, then call a new card.setFullText(text) that swaps the label text. Ignore results for destroyed cards.",
+        "Make sure the text label actually gets the card's fixed height (y_expand down the chain) so wrap plus END ellipsize clips at the card's bottom edge.",
+        "Run ./test-harness/verify.sh all and require it green; nested-shell screenshot of a long text card for design sign-off."
+      ],
+      "blockedBy": [
+        "002",
+        "004"
+      ],
+      "refs": [
+        "v1-spec.md",
+        "ADR-0003"
+      ],
+      "passes": true
     }
   ]
 }

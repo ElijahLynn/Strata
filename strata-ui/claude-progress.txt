@@ -5,6 +5,27 @@ Entries are headed with a UTC ISO-8601 timestamp (YYYY-MM-DDThh:mm:ssZ, from
 Harness: https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents
 
 ────────────────────────────────────────────────────────────────────────
+2026-11-03T02:26:15Z - 037: Long text cards fill to the bottom edge, then ellipsize
+
+WHAT: the daemon sends list previews cut to 200 chars (db.rs PREVIEW_CHARS), which
+fills only about half a card, so long entries stopped mid-card with no ellipsis.
+card.js now flags a preview at that cap as isTruncatedPreview and shows a trailing
+ellipsis on it right away. shelf.js fetches the full content (_fetchContent /
+GetItemContent) for visible flagged cards only, the same visibility pass as
+thumbnails (_updateVisibleThumbs), once per id per view, cached per session
+(_fullTextCache, raw text capped at FULL_TEXT_KEEP). card.setFullText() swaps it
+in and the wrapped END ellipsis clips it at the card's bottom edge. Short previews
+are never fetched. Daemon untouched (ADR-0003).
+
+VERIFY: `./test-harness/verify.sh 037` - a 200-char preview triggers the fetch, its
+label grows past 200 chars, its Pango layout is ellipsized and reaches the card's
+bottom; a short entry is not fetched and not ellipsized; a capped preview ends
+with an ellipsis before the fetch lands.
+`verify.sh all`: 037 and 19 others pass; 005 006 011 012 013 020 023 025 027 029
+030 031 032 033 fail identically on the untouched base (87a813f). They need real
+key/click injection, which this GNOME 51 host lacks (see the 036 notes).
+
+────────────────────────────────────────────────────────────────────────
 2026-07-07T06:27:15Z — 035: Frosted-glass shelf (BACKGROUND blur) + header layout (built+verified in nested; NOT yet loaded live)
 
 WHAT: the SHELF band now reads as frosted glass — a Shell.BlurEffect (mode

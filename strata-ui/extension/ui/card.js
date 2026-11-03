@@ -21,6 +21,11 @@ import St from 'gi://St';
 // defensively so one giant entry can't blow up a card's layout cost.
 const PREVIEW_LEN = 600;
 
+// The daemon cuts list previews to this many chars (strata-daemon/src/db.rs
+// PREVIEW_CHARS). A preview this long was probably truncated, so the shelf
+// fetches the full text for it (037) to fill the card down to its bottom edge.
+export const DAEMON_PREVIEW_CHARS = 200;
+
 // Cheap, whole-content classification regexes (run once per card, on the client).
 const URL_RE = /^https?:\/\/[^\s]+$/i;          // the entire entry is a single URL
 const URL_HOST_RE = /^https?:\/\/([^/\s:?#]+)/i; // → hostname (no scheme/port/path)
@@ -73,8 +78,11 @@ class Card extends St.Button {
     }
 
     _buildText(meta) {
-        const raw = (meta.content_text ?? '').replace(/\s+/g, ' ').trim();
-        const text = raw.length > PREVIEW_LEN ? `${raw.slice(0, PREVIEW_LEN)}…` : raw;
+        // A capped daemon preview (037) is marked with a trailing ellipsis until
+        // the shelf swaps in the full text, so it never looks complete.
+        this.isTruncatedPreview = [...(meta.content_text ?? '')].length >= DAEMON_PREVIEW_CHARS;
+        let text = previewText(meta.content_text);
+        if (this.isTruncatedPreview && !text.endsWith('…')) text += '…';
 
         const label = new St.Label({
             text: text || '(empty)',
@@ -88,6 +96,13 @@ class Card extends St.Button {
         ct.set_ellipsize(Pango.EllipsizeMode.END); // clip overflow on the fixed-height card
         this._textLabel = label;
         return label;
+    }
+
+    /** Swap in the full content fetched by the shelf (037). Wrapped END ellipsis
+     *  then clips it at the card's bottom edge. */
+    setFullText(content) {
+        if (!this._textLabel) return;
+        this._textLabel.set_text(previewText(content) || '(empty)');
     }
 
     /** Link card: the URL, link-styled, with the hostname as a subtitle. */
@@ -196,6 +211,12 @@ class Card extends St.Button {
         } catch (_) { /* container destroyed mid-flight */ }
     }
 });
+
+/** Collapse whitespace and cap to PREVIEW_LEN, adding an ellipsis when cut. */
+function previewText(content) {
+    const raw = (content ?? '').replace(/\s+/g, ' ').trim();
+    return raw.length > PREVIEW_LEN ? `${raw.slice(0, PREVIEW_LEN)}…` : raw;
+}
 
 /** Cheap, whole-content classification (ADR-0007): image/file by mime, Link/Color
  *  by regex on the trimmed text, everything else Text. */
