@@ -2135,6 +2135,35 @@ case "$ID" in
     chk "$(evnum "(function(){var C=$LU._shelf._cards.get('L0').constructor; var c=new C({id:'X',mime_type:'text/plain',content_text:globalThis._tFull.slice(0,200)}); var t=c._textLabel.get_text(); c.destroy(); return t.endsWith('…')?1:0;})()")" "1" "capped preview ends with an ellipsis before the full text arrives"
     ;;
 
+  039)
+    LU="Main.extensionManager.lookup('$UUID').stateObj"
+    # L0: long entry (capped preview, ~2000-char full text). M0: capped preview whose full
+    # text is only ~210 chars (fits once fetched). S0: short complete entry.
+    nested_eval "(function(){
+      var e=$LU, sh=e._shelf;
+      var word='lorem ipsum dolor sit amet ', full=''; while(full.length<2000) full+=word;
+      var mid=full.slice(0,210);
+      globalThis._mFull={L0:full, M0:mid};
+      globalThis._mM=[{id:'L0',mime_type:'text/plain',content_text:full.slice(0,200),created_at:3,has_thumbnail:false},
+                      {id:'M0',mime_type:'text/plain',content_text:mid.slice(0,200),created_at:2,has_thumbnail:false},
+                      {id:'S0',mime_type:'text/plain',content_text:'short complete entry',created_at:1,has_thumbnail:false}];
+      sh._fetchPage=function(o,l){ return Promise.resolve(_mM.slice(o,o+l)); };
+      sh._fetchContent=function(id){ return Promise.resolve(['text/plain', new TextEncoder().encode(_mFull[id]||'')]); };
+      e._showVisor(); return 1;
+    })()" >/dev/null 2>&1
+    sleep 1.5
+    C="$LU._shelf._cards"
+    chk "$(evnum "(function(){var b=$C.get('L0')._moreButton; return (b&&b.visible&&b.get_label()==='Show more…')?1:0;})()")" "1" "long card shows a visible 'Show more...' link"
+    chk "$(evnum "(function(){var c=$C.get('L0'),b=c._moreButton,cb=c.get_transformed_extents(),bb=b.get_transformed_extents(); return (b.get_height()>0 && bb.get_y()>$C.get('L0')._textLabel.get_transformed_extents().get_y() && bb.get_y()+bb.get_height()<=cb.get_y()+cb.get_height())?1:0;})()")" "1" "link sits below the text, inside the card's bottom edge"
+    chk "$(evnum "(function(){var b=$C.get('S0')._moreButton; return (b&&b.visible)?1:0;})()")" "0" "short card shows no link"
+    chk "$(evnum "(function(){var b=$C.get('M0')._moreButton; return (b&&b.visible)?1:0;})()")" "0" "capped preview whose full text fits hides the link once it arrives"
+    chk "$(evnum "(function(){return $C.get('L0')._moreButton.can_focus?1:0;})()")" "0" "link is not keyboard-focusable"
+    nested_eval "(function(){var sh=$LU._shelf; globalThis._mW=sh._lastWrite; sh._cards.get('L0')._moreButton.emit('clicked',1); return 1;})()" >/dev/null 2>&1
+    sleep 0.8
+    chk "$(evnum "(function(){return $LU._shelf.isPeeking()?1:0;})()")" "1" "clicking the link opens Peek"
+    chk "$(evnum "(function(){return $LU._shelf._lastWrite===globalThis._mW?1:0;})()")" "1" "clicking the link does not copy the card"
+    ;;
+
   *) echo "  note: no feature-specific checks for $ID (generic only)";;
 esac
 

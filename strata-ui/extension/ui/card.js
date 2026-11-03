@@ -13,6 +13,7 @@
  */
 
 import GObject from 'gi://GObject';
+import GLib from 'gi://GLib';
 import Clutter from 'gi://Clutter';
 import Pango from 'gi://Pango';
 import St from 'gi://St';
@@ -31,7 +32,10 @@ const URL_RE = /^https?:\/\/[^\s]+$/i;          // the entire entry is a single 
 const URL_HOST_RE = /^https?:\/\/([^/\s:?#]+)/i; // → hostname (no scheme/port/path)
 const COLOR_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/; // #rgb or #rrggbb
 
-export const Card = GObject.registerClass(
+export const Card = GObject.registerClass({
+    // 039: the "Show more..." link asks the shelf to open this card in Peek.
+    Signals: { 'show-more': {} },
+},
 class Card extends St.Button {
     _init(meta, opts = {}) {
         super._init({
@@ -95,14 +99,61 @@ class Card extends St.Button {
         ct.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR);
         ct.set_ellipsize(Pango.EllipsizeMode.END); // clip overflow on the fixed-height card
         this._textLabel = label;
-        return label;
+
+        // 039: a cut-off card ends with "Show more..." pinned to its bottom edge.
+        // Clicking it opens Peek instead of copying; it never takes key focus so
+        // Left/Right card navigation is unchanged.
+        this._moreButton = new St.Button({
+            label: 'Show more…',
+            style_class: 'strata-card-more',
+            can_focus: false,
+            x_align: Clutter.ActorAlign.START,
+            visible: this.isTruncatedPreview,
+        });
+        this._moreButton.connect('clicked', () => {
+            this.emit('show-more');
+            return Clutter.EVENT_STOP;
+        });
+        this._fullTextIn = false;
+        this._moreCheckId = 0;
+        label.connect_after('notify::allocation', () => this._queueMoreCheck());
+        this.connect('destroy', () => {
+            if (this._moreCheckId) GLib.Source.remove(this._moreCheckId);
+            this._moreCheckId = 0;
+        });
+
+        const box = new St.BoxLayout({
+            orientation: Clutter.Orientation.VERTICAL,
+            x_expand: true,
+            y_expand: true,
+        });
+        box.add_child(label);
+        box.add_child(this._moreButton);
+        return box;
+    }
+
+    /** Re-decide the "Show more..." link after layout (039), off the allocation
+     *  cycle. Shown while a capped preview awaits its full text, otherwise only
+     *  when the wrapped label is actually ellipsized. Stable: hiding the link
+     *  gives the text more room, showing it gives less, so it never flips back. */
+    _queueMoreCheck() {
+        if (this._moreCheckId) return;
+        this._moreCheckId = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+            this._moreCheckId = 0;
+            const awaiting = this.isTruncatedPreview && !this._fullTextIn;
+            const cut = this._textLabel.get_clutter_text().get_layout().is_ellipsized();
+            this._moreButton.visible = awaiting || cut;
+            return GLib.SOURCE_REMOVE;
+        });
     }
 
     /** Swap in the full content fetched by the shelf (037). Wrapped END ellipsis
      *  then clips it at the card's bottom edge. */
     setFullText(content) {
         if (!this._textLabel) return;
+        this._fullTextIn = true;
         this._textLabel.set_text(previewText(content) || '(empty)');
+        this._queueMoreCheck();
     }
 
     /** Link card: the URL, link-styled, with the hostname as a subtitle. */

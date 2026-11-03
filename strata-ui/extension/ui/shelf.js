@@ -314,6 +314,7 @@ export class Shelf {
     _makeCard(meta) {
         const card = new Card(meta, { cardWidth: this._cardWidth });
         card.connect('clicked', () => this.activate(card)); // mouse + keyboard-on-card
+        card.connect('show-more', () => this.peek(card));  // 039: "Show more..." link
         this._cards.set(meta.id, card);
         this.renderStats.count = this._cards.size;
         return card;

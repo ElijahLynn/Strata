@@ -142,6 +142,19 @@
   padding-top: 4px;
 }
 
+/* "Show more..." link on a cut-off text card (039): opens Peek. */
+.strata-card-more {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 12px;
+  padding: 6px 0 0 0;
+  background: none;
+  border: none;
+}
+.strata-card-more:hover {
+  color: rgba(255, 255, 255, 0.85);
+  text-decoration: underline;
+}
+
 /* Color card (007): a swatch filled with the hex, the hex string below it. */
 .strata-card-color {
   spacing: 8px;
@@ -276,6 +289,12 @@
 }
 .strata-theme-light .strata-card-subtitle {
   color: rgba(0, 0, 0, 0.5);
+}
+.strata-theme-light .strata-card-more {
+  color: rgba(0, 0, 0, 0.55);
+}
+.strata-theme-light .strata-card-more:hover {
+  color: rgba(0, 0, 0, 0.85);
 }
 
 /* ── Focus highlight, per theme (011) ───────────────────────────────────────

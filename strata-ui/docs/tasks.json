@@ -815,6 +815,29 @@
         "Follow-up: multi-select for images/files needs a multi-item clipboard owner (see 019/022 multi-mime wall)"
       ],
       "passes": false
+    },
+    {
+      "id": "039",
+      "title": "Cut-off text cards end with a \"Show more…\" link that opens Peek",
+      "category": "feature",
+      "description": "User request (live, after 037): a cut-off text card should say \"Show more…\" rather than only trailing off in an ellipsis. A text card whose content does not fit (its preview is still the capped daemon excerpt, or its wrapped label is ellipsized after layout) shows a dimmed \"Show more…\" line pinned to the bottom of the card. Clicking it opens that card in Peek (same as Space) and does NOT copy; clicking anywhere else on the card still copies. The link does not take keyboard focus, so Left/Right card navigation is unchanged. Once the full text has arrived (037) and fits the card, the link hides. Short cards never show it. Modelled loosely on Paste for Mac, which conveys length on the card and uses a large preview for the full text. UI-only, ADR-0003.",
+      "steps": [
+        "TEST first (RED, verify.sh 039): a long card (200-char capped preview, ~2000-char full text) shows a visible \"Show more…\" link below its text, inside the card's bottom edge; a short card has none; a capped preview whose full text is short (~210 chars) hides the link once the full text arrives; clicking the link opens Peek on that card and does not change the clipboard (shelf._lastWrite unchanged); the link is not focusable.",
+        "card.js: wrap the text label in a vertical box with a St.Button 'strata-card-more' (label \"Show more…\", can_focus false) below it; show it while isTruncatedPreview and the full text is not yet in, otherwise iff the label's layout is ellipsized after allocation. Emit a 'show-more' signal on click and stop the event so the card does not activate.",
+        "shelf.js: connect each card's 'show-more' to this.peek(card).",
+        "stylesheet.css: dimmed subtitle-like style for .strata-card-more (dark + light theme), underline on hover.",
+        "Run ./test-harness/verify.sh all; require no new failures versus the base; nested-shell screenshot for design sign-off."
+      ],
+      "blockedBy": [
+        "006",
+        "037"
+      ],
+      "refs": [
+        "v1-spec.md",
+        "ADR-0003",
+        "ADR-0007"
+      ],
+      "passes": true
     }
   ]
 }

@@ -5,6 +5,23 @@ Entries are headed with a UTC ISO-8601 timestamp (YYYY-MM-DDThh:mm:ssZ, from
 Harness: https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents
 
 ────────────────────────────────────────────────────────────────────────
+2026-11-03T04:24:03Z - 039: "Show more..." link on cut-off text cards opens Peek
+
+WHAT: a text card whose content does not fit ends with a dimmed "Show more..."
+St.Button (strata-card-more) under its label. It shows while a capped preview
+awaits its full text (037), otherwise only when the wrapped label's layout is
+ellipsized, re-checked in an idle after each label allocation (stable: hiding
+the link only adds room). Clicking it emits 'show-more', which the shelf maps to
+peek(card); it stops the event so the card does not copy. can_focus false keeps
+Left/Right navigation unchanged. Dark and light styles in stylesheet.css.
+
+VERIFY: `./test-harness/verify.sh 039` - long card shows the link below its text
+inside the card; short card has none; a capped preview whose full text fits hides
+it; the link is not focusable; clicking it opens Peek and does not copy.
+`verify.sh all`: 039 and 20 others pass; the same 14 cases as in 037's entry fail
+identically on the base (no real key/click injection on this GNOME 51 host).
+
+────────────────────────────────────────────────────────────────────────
 2026-11-03T02:26:15Z - 037: Long text cards fill to the bottom edge, then ellipsize
 
 WHAT: the daemon sends list previews cut to 200 chars (db.rs PREVIEW_CHARS), which
