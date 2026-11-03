@@ -786,6 +786,35 @@
         "ADR-0003"
       ],
       "passes": true
+    },
+    {
+      "id": "038",
+      "title": "Multi-select entries and copy them together (text first)",
+      "category": "functional",
+      "description": "User request: select several clipboard entries on the shelf and paste them as one. First slice is text only. The user marks multiple cards (Ctrl+click, or Ctrl+Space on the focused card), and the marked cards show a distinct selected state plus an order badge (1, 2, 3...). Enter, or clicking a marked card, fetches the full content of each marked text entry through the existing _fetchContent seam (GetItemContent), joins them in the order they were selected with a newline, writes the result with St.Clipboard.set_text, and dismisses. This follows ADR-0005: we set the clipboard and never synthesize a paste. With no cards marked, Enter and click behave exactly as today (feature 005/012). Non-text entries (image, file) cannot be marked in this slice; Ctrl+click on one is a no-op. Selection clears when the visor closes or the search query changes. UI-only (ADR-0003): no daemon change. The joined text is not submitted back to the daemon as a new history item. DO NOT BUILD until directed.",
+      "steps": [
+        "TEST first (RED, verify.sh 038): stub _fetchContent for three text corpus items. Mark them in the order B, A, C via the Ctrl+Space path, press Enter, and assert the clipboard text is exactly 'B\\nA\\nC' and the visor dismissed. Assert full content is used, not the 200-char daemon preview.",
+        "Ctrl+click and Ctrl+Space toggle a card's marked state; unmarking renumbers the remaining badges. Plain Space (Peek), Left/Right, Delete, and typing-to-search are unchanged.",
+        "Marked cards render a selected style and order badge that are readable in both light and dark themes and distinct from the keyboard-focus highlight.",
+        "Ctrl+click / Ctrl+Space on an image or file card does nothing and never adds it to the selection.",
+        "Enter or click with an empty selection copies the single focused/clicked entry as before (verify.sh 005 and 012 stay green).",
+        "Selection clears on visor close and on any search-query change; reopening the visor shows no marked cards.",
+        "If any GetItemContent call fails, log '[Strata UI]' and copy nothing rather than a partial join; the visor still dismisses.",
+        "Run ./test-harness/verify.sh all and require it green; nested-shell screenshot with three marked cards for design sign-off."
+      ],
+      "blockedBy": [
+        "005",
+        "011",
+        "012"
+      ],
+      "refs": [
+        "v1-spec.md",
+        "ADR-0003",
+        "ADR-0005",
+        "extension/ui/shelf.js (activate, _fetchContent, _writeClipboard)",
+        "Follow-up: multi-select for images/files needs a multi-item clipboard owner (see 019/022 multi-mime wall)"
+      ],
+      "passes": false
     }
   ]
 }
