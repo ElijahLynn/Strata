@@ -139,6 +139,18 @@ export default class StrataUIPreferences extends ExtensionPreferences {
 
         page.add(historyGroup);
 
+        // ── Notifications (screenshot banner suppression — feature 040) ───────
+        const notificationsGroup = new Adw.PreferencesGroup({ title: 'Notifications' });
+
+        const hideScreenshotRow = new Adw.SwitchRow({
+            title: 'Hide screenshot notifications',
+            subtitle: 'Suppress GNOME\'s "Screenshot captured" banner (capture, file, and clipboard are unaffected)',
+        });
+        settings.bind('hide-screenshot-notifications', hideScreenshotRow, 'active', Gio.SettingsBindFlags.DEFAULT);
+        notificationsGroup.add(hideScreenshotRow);
+
+        page.add(notificationsGroup);
+
         // ── Appearance (theme — applied via class-toggle by the extension) ─────
         const appearanceGroup = new Adw.PreferencesGroup({ title: 'Appearance' });
 

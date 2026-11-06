@@ -1223,3 +1223,44 @@ smoke-test in a live session per each feature's `steps`.
   background tint (outline/border kept) turns case 011 RED while the old sides-only
   "looks different" delta still passes — the fill is the point; restore -> GREEN.
   verify.sh all -> ALL GREEN (001-016). 004/005/006 re-verified.
+
+2026-11-06T05:08:29Z — starting 040: Optional suppression of GNOME screenshot notification banners.
+2026-11-06T05:08:29Z — 040: Optional suppression of GNOME screenshot notification banners (TDD red->green, teeth proven).
+  TEST FIRST (verify.sh case 040): drives GNOME's REAL interactive screenshot flow
+  headlessly (Main.screenshotUI.open() + its own _onCaptureButtonClicked(), the exact
+  path screenshot.js uses for a real capture -> captureScreenshot -> _storeScreenshot),
+  not a spy on our own code. RED before impl: the suppression setting didn't exist,
+  every capture produced a real banner on GNOME's shared "Screen Capture" source.
+  GREEN after impl: with the new hide-screenshot-notifications key (default true),
+  a real capture still lands real PNG bytes on the clipboard but shows no banner;
+  toggling the prefs switch live (no re-enable) flips behavior on the very next
+  capture; a screencast-shaped notification on the SAME shared source and an
+  unrelated app's own notification (Main.notify) are both left alone; disable()
+  restores the patched Source method and clears the source-added listener id
+  (checked directly); re-enable re-suppresses without a duplicate/accumulated hook.
+  IMPL: GNOME's screenshot.js keeps the "Screen Capture" notification source and the
+  _storeScreenshot()/_showNotification() functions module-private — no exported hook
+  exists to intercept just the screenshot-captured banner. So extension.js watches
+  Main.messageTray's 'source-added' signal and, on the one Source whose icon is
+  'screenshooter-symbolic' (a stable technical identifier, matched instead of the
+  translated source title), instance-patches ONLY that Source's addNotification to
+  drop a notification when hide-screenshot-notifications is on AND the notification
+  carries a gicon — the St.ImageContent capture preview that ONLY the "Screenshot
+  captured" banner sets (screencast recorded/failed notifications never set one).
+  The setting is read live on every call, so toggling takes effect immediately. A
+  new Adw.SwitchRow (prefs.js, bound via settings.bind) exposes the key. disable()
+  disconnects the source-added listener and un-patches every Source it touched
+  (delete source.addNotification restores the prototype method); enable() re-patches
+  any sources already present plus every new one, with no accumulation across cycles.
+  TEETH: short-circuiting the suppression condition (if (false && ...)) turned case
+  040 RED on every suppression-dependent assertion (clipboard-bytes and the
+  unrelated-notification check stayed green, confirming the test isn't trivially
+  all-or-nothing); restoring the condition returned ALL GREEN.
+  verify.sh all: 040 passes. Pre-existing, unrelated failures on 005/006/011/012/
+  013/020/023/025/027/029/030/031/032/033 (confirmed via `git stash` against the
+  committed tree before this slice's changes — identical failures with none of this
+  work applied) — all real-hardware key/click injection cases that this sandboxed
+  GNOME 51 host cannot satisfy (same pre-existing harness blocker case 036's progress
+  note already calls out), not a regression from 040. Left passes:false; not this
+  slice's to fix. No daemon changes. Not committed (interactive user has not
+  authorized commits) — left in the working tree for review.

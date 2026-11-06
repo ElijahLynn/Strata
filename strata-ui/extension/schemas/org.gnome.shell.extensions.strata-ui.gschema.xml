@@ -83,6 +83,12 @@
       <description>Reuses Strata's key. Image payloads larger than this are not stored by the daemon.</description>
     </key>
 
+    <key name="hide-screenshot-notifications" type="b">
+      <default>true</default>
+      <summary>Hide GNOME's "Screenshot captured" notification banner</summary>
+      <description>Suppresses only the transient banner GNOME's own screenshot UI shows after a capture (identified structurally, not by its translated title) — the capture, the saved file, and the clipboard bytes are unaffected. Screencast/recording notifications and every other app's notifications are untouched. Live-tunable — takes effect on the very next screenshot, no shell reload needed.</description>
+    </key>
+
     <key name="excluded-apps" type="as">
       <default><![CDATA[['1password', 'keepassxc', 'keepass', 'gnome-secrets', 'bitwarden', 'dashlane', 'lastpass', 'enpass']]]></default>
       <summary>App WM-class substrings excluded from clipboard history</summary>

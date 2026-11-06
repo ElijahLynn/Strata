@@ -5,6 +5,23 @@
   "instructions": "Edit ONLY the `passes` field of a feature, and flip it to true ONLY after carefully testing every step. Never delete, weaken, or merge a feature to make it pass. Work the highest-priority feature whose blockedBy are all passing. UI-only: do not modify strata-daemon (ADR-0003).",
   "features": [
     {
+      "id": "040",
+      "title": "Optional suppression of GNOME screenshot notification banners",
+      "category": "functional",
+      "description": "Add a live-tunable preferences switch to hide GNOME's Screenshot Captured banner without changing screenshot capture, saving, clipboard contents, recording notifications, or other app notifications. Default suppression to true for this requested feature. Support the installed GNOME 51.1 and retain declared supported versions where feasible. Work ONLY slice 040 for this request, leaving all unrelated pending slices untouched. Do not commit or push without explicit user permission.",
+      "steps": [
+        "TEST FIRST: add verify.sh 040 and run it RED before implementation. Exercise the real screenshot capture notification path in a fresh nested shell, not only a helper or internal spy.",
+        "Add a boolean GSettings key and an Adw preferences switch for hiding screenshot notification banners; changing the switch takes effect live.",
+        "When suppression is enabled, a real screenshot still produces its image and clipboard bytes but no screenshot banner; other app notifications and screen-recording notifications retain normal behavior. Match by structural identity where possible rather than translated notification titles.",
+        "Turning suppression off restores normal screenshot banners. Disabling Strata UI restores any patched methods and disconnects signals; re-enabling works without accumulating hooks.",
+        "Prove test teeth by temporarily removing suppression and observing verify.sh 040 fail, then restore and confirm GREEN. Run verify.sh all and report any existing failures without weakening coverage or falsely setting passes:true.",
+        "Append timestamped progress and document activation: the installation is already symlinked; compile schemas as needed, but never log the user out or claim disable/enable reloads Wayland JavaScript. No daemon changes, commits, or pushes."
+      ],
+      "blockedBy": ["008"],
+      "refs": ["../AGENTS.md", "../extension/extension.js", "../extension/prefs.js", "../test-harness/verify.sh"],
+      "passes": false
+    },
+    {
       "id": "036",
       "title": "Restore Strata UI and Ctrl+Alt+C on GNOME Shell 51",
       "category": "compatibility",

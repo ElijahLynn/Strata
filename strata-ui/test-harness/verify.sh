@@ -2164,6 +2164,110 @@ case "$ID" in
     chk "$(evnum "(function(){return $LU._shelf._lastWrite===globalThis._mW?1:0;})()")" "1" "clicking the link does not copy the card"
     ;;
 
+  040)
+    LU="Main.extensionManager.lookup('$UUID').stateObj"
+
+    # Drive GNOME's REAL interactive screenshot flow — Main.screenshotUI.open() +
+    # its own capture-button handler (screenshot.js _onCaptureButtonClicked ->
+    # _saveScreenshot -> captureScreenshot -> _storeScreenshot) — the exact path
+    # that produces the "Screenshot captured" banner live. Not a spy on our code.
+    capture040(){
+      nested_eval "(function(){
+        (async function(){
+          try { await Main.screenshotUI.open(); } catch(e){}
+          try { await Main.screenshotUI._onCaptureButtonClicked(); } catch(e){}
+        })();
+        return 1;
+      })()" >/dev/null 2>&1
+      sleep 1.2
+    }
+    # Notification count on GNOME's own "Screen Capture" source, identified by its
+    # icon name 'screenshooter-symbolic' — a stable technical identifier (never the
+    # translated source title). screenshot.js creates this source lazily.
+    bannerCount(){
+      evnum "(function(){
+        var src = Main.messageTray.getSources().find(function(s){
+          return s.icon && s.icon.get_names && s.icon.get_names().indexOf('screenshooter-symbolic')>=0;
+        });
+        return src ? src.notifications.length : 0;
+      })()"
+    }
+    clipImageLen(){
+      nested_eval "(function(){
+        globalThis._clipLen = -1;
+        imports.gi.St.Clipboard.get_default().get_content(
+          imports.gi.St.ClipboardType.CLIPBOARD, 'image/png',
+          function(_cb, bytes){ globalThis._clipLen = bytes ? bytes.get_size() : -2; });
+        return 1;
+      })()" >/dev/null 2>&1
+      sleep 0.3
+      evnum "globalThis._clipLen"
+    }
+
+    chk "$(nested_eval "$LU._settings.get_boolean('hide-screenshot-notifications')" 2>/dev/null | grep -oE 'true|false' | head -1)" "true" "screenshot-banner suppression defaults ON"
+
+    # 1) Default (suppression ON): a REAL screenshot still produces image + clipboard
+    #    bytes, but the Screen Capture source gets NO notification.
+    capture040
+    chk "$(bannerCount)" "0" "suppression ON: real screenshot shows no Screen Capture banner"
+    clen="$(clipImageLen)"
+    chk "$([ "${clen:-0}" -gt 0 ] 2>/dev/null && echo yes || echo no)" "yes" "suppression ON: the screenshot still lands real image bytes on the clipboard"
+
+    # 2) Toggle OFF live (no re-enable) -> the very next screenshot shows the banner.
+    nested_eval "(function(){ $LU._settings.set_boolean('hide-screenshot-notifications', false); return 1; })()" >/dev/null 2>&1
+    capture040
+    chk "$(bannerCount)" "1" "toggling the switch OFF live restores the real banner on the next screenshot"
+
+    # 3) Toggle back ON -> suppressed again, no leftover/duplicate banner.
+    nested_eval "(function(){ $LU._settings.set_boolean('hide-screenshot-notifications', true); return 1; })()" >/dev/null 2>&1
+    capture040
+    chk "$(bannerCount)" "1" "toggling back ON live re-suppresses, without adding another banner"
+
+    # 4) Structural specificity: a screencast-shaped notification (no gicon) on the
+    #    SAME shared source is left alone even while suppression is active. Reuse
+    #    the real Notification class off the one real notification already sitting
+    #    on that source (added, un-suppressed, back in step 2) instead of importing
+    #    the ESM-only messageTray.js module through the legacy `imports` bridge
+    #    (which chokes on its top-level `import` statements outside module scope).
+    nested_eval "(function(){
+      var src = Main.messageTray.getSources().find(function(s){
+        return s.icon && s.icon.get_names && s.icon.get_names().indexOf('screenshooter-symbolic')>=0;
+      });
+      var NotificationClass = src.notifications[0].constructor;
+      src.addNotification(new NotificationClass({source: src, title: 'Screencast recorded', isTransient: true}));
+      return 1;
+    })()" >/dev/null 2>&1
+    chk "$(bannerCount)" "2" "a screencast-shaped (no-gicon) notification on the same source is never suppressed"
+
+    # 5) Other apps' own notifications (Main.notify -> the shared "System" source,
+    #    icon 'cog-wheel-symbolic') are untouched by the hook.
+    sysCount(){
+      evnum "(function(){
+        var s = Main.messageTray.getSources().find(function(x){
+          return x.icon && x.icon.get_names && x.icon.get_names().indexOf('cog-wheel-symbolic')>=0;
+        });
+        return s ? s.notifications.length : 0;
+      })()"
+    }
+    before5="$(sysCount)"
+    nested_eval "(function(){ Main.notify('Strata test: unrelated notification', 'body'); return 1; })()" >/dev/null 2>&1
+    chk "$(sysCount)" "$((before5 + 1))" "an unrelated app's own notification (Main.notify) is unaffected"
+
+    # 6) Lifecycle: disable() restores the patched method and drops the listener;
+    #    a screenshot taken while disabled shows the normal banner again.
+    nested_eval "(function(){ $LU.disable(); return 1; })()" >/dev/null 2>&1
+    sleep 0.3
+    chk "$(nested_eval "String($LU._screenshotSourceAddedId)" 2>/dev/null | grep -oE 'null|[0-9]+' | head -1)" "null" "disable() clears the source-added listener id (no leaked signal connection)"
+    capture040
+    chk "$(bannerCount)" "3" "disabling Strata UI restores normal screenshot banners"
+
+    # Re-enable: suppression works again, with no accumulated/duplicate hooks.
+    nested_eval "(function(){ $LU.enable(); return 1; })()" >/dev/null 2>&1
+    sleep 0.3
+    capture040
+    chk "$(bannerCount)" "3" "re-enabling re-suppresses without accumulating hooks (no new/duplicate banner)"
+    ;;
+
   *) echo "  note: no feature-specific checks for $ID (generic only)";;
 esac
 

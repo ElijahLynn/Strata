@@ -65,6 +65,12 @@ export default class StrataUIExtension extends Extension {
     _maxTextBytes = 1024 * 1024;
     _maxImageBytes = 5 * 1024 * 1024;
 
+    /** Screenshot-banner suppression (slice 040): Main.messageTray 'source-added'
+     *  listener id, and the set of Source instances we've instance-patched (so
+     *  disable() can restore each one exactly). */
+    _screenshotSourceAddedId = null;
+    _screenshotSourcesPatched = null;
+
     enable() {
         this._settings = this.getSettings();
         this._shuttingDown = false;
@@ -83,6 +89,7 @@ export default class StrataUIExtension extends Extension {
         this._connectFocusTracking(); // who's focused → excluded-apps decisions
         this._connectSignals();   // ItemAdded / ItemDeleted / HistoryCleared
         this._connectClipboardMonitor(); // capture copies → SubmitItem (GNOME path)
+        this._connectScreenshotNotificationSuppression(); // feature 040
         console.log('[Strata UI] enabled (035: shelf frosted-glass blur)');
     }
 
@@ -90,6 +97,7 @@ export default class StrataUIExtension extends Extension {
         this._shuttingDown = true;
         this._unregisterShortcut();
         this._unwatchSettings();
+        this._disconnectScreenshotNotificationSuppression();
         this._disconnectClipboardMonitor();
         this._disconnectSignals();
         this._disconnectFocusTracking();
@@ -726,6 +734,71 @@ export default class StrataUIExtension extends Extension {
             global.display.disconnect(this._focusSignalId);
             this._focusSignalId = null;
         }
+    }
+
+    // -- Screenshot-banner suppression (slice 040) ------------------------------
+    //
+    // GNOME's screenshot UI (js/ui/screenshot.js) shows its "Screenshot captured"
+    // banner and a screencast's "Screencast recorded"/failure banners on ONE
+    // shared MessageTray.Source (module-private, created on demand — there is no
+    // exported hook to intercept just the one we care about). So instead we watch
+    // every Source Main.messageTray ever adds and, on the one whose icon identifies
+    // it as that shared source, instance-patch addNotification to drop ONLY the
+    // notification carrying the screenshot preview — never the whole source.
+
+    _connectScreenshotNotificationSuppression() {
+        this._screenshotSourcesPatched = new Set();
+        this._screenshotSourceAddedId = Main.messageTray.connect(
+            'source-added', (_tray, source) => this._maybePatchScreenshotSource(source));
+        // A capture taken before we enabled may have left the source already up.
+        for (const source of Main.messageTray.getSources())
+            this._maybePatchScreenshotSource(source);
+    }
+
+    _disconnectScreenshotNotificationSuppression() {
+        if (this._screenshotSourceAddedId) {
+            Main.messageTray.disconnect(this._screenshotSourceAddedId);
+            this._screenshotSourceAddedId = null;
+        }
+        if (this._screenshotSourcesPatched) {
+            for (const source of this._screenshotSourcesPatched)
+                this._unpatchScreenshotSource(source);
+            this._screenshotSourcesPatched = null;
+        }
+    }
+
+    /** True for GNOME's own screenshot/screencast notification source. Matched by
+     *  icon name — a stable technical identifier set once in screenshot.js — never
+     *  by the Source's title, which is user-visible and translated. */
+    _isScreenCaptureSource(source) {
+        const icon = source?.icon;
+        return !!icon && typeof icon.get_names === 'function' &&
+            icon.get_names().includes('screenshooter-symbolic');
+    }
+
+    _maybePatchScreenshotSource(source) {
+        if (!this._isScreenCaptureSource(source) || this._screenshotSourcesPatched.has(source))
+            return;
+        const original = source.addNotification.bind(source);
+        // Instance-level override (shadows the prototype method on THIS Source
+        // object only — every other notification source in the Shell, including
+        // other apps' and the system source Main.notify() uses, is untouched).
+        source.addNotification = notification => {
+            // Structural identity, not the translated title: of everything shown
+            // on this shared source, only the "Screenshot captured" notification
+            // carries a gicon (the capture preview, an St.ImageContent) — the
+            // screencast recorded/failed banners never set one. Checked live on
+            // every call, so toggling the setting takes effect on the very next
+            // screenshot without re-enabling.
+            if (this._settings?.get_boolean('hide-screenshot-notifications') && notification.gicon)
+                return;
+            original(notification);
+        };
+        this._screenshotSourcesPatched.add(source);
+    }
+
+    _unpatchScreenshotSource(source) {
+        delete source.addNotification;   // restore the prototype method
     }
 
     // -- Clipboard capture (slice 010, lifted from strata@edu4rdshl.dev) --------
